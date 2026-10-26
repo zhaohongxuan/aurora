@@ -1,0 +1,22 @@
+{
+  "name": "aurora",
+  "private": true,
+  "type": "module",
+  "description": "Aurora — a collection of DeepSeek Harness (dsh) plugins",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/each.mjs build",
+    "dev": "node scripts/each.mjs dev",
+    "typecheck": "node scripts/each.mjs typecheck",
+    "link": "bash scripts/link-profile.sh",
+    "unlink": "bash scripts/unlink-profile.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+# Bundle patch layer for aurora-system-stats.
+#
+# One row serves both halves: the package main entry (`lib/index.js`) is the
+# host-side Cordis plugin, and the `dsh.client` declaration in package.json
+# tells the web app to also load `lib/client.js` into the browser.
+- insert:
+    - id: aurora-system-stats
+      name: aurora-system-stats
