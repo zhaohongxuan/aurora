@@ -28,60 +28,77 @@
 
 /* ---------- the orb ---------- */
 
+/* The button is only the hit area: the shell styles every `button` with a
+   `--dsw-radius-md` (12px) border radius and border-box sizing, which would turn a
+   58px circle into a rounded square. Everything visible lives on the ball. */
 .aurora-orb {
   pointer-events: auto;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  box-sizing: content-box;
   width: var(--aurora-orb);
   height: var(--aurora-orb);
   padding: 0;
-  border: 1px solid var(--aurora-border);
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  box-shadow: none;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The glass: one circle, drawn inside the button. */
+.aurora-ball {
   border-radius: 50%;
   background: radial-gradient(120% 120% at 30% 20%, var(--aurora-surface), color-mix(in srgb, var(--aurora-surface) 82%, var(--aurora-brand)));
   box-shadow:
     0 6px 20px -8px rgb(15 23 42 / 35%),
-    0 1px 2px rgb(15 23 42 / 12%);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
+    0 1px 2px rgb(15 23 42 / 12%),
+    inset 0 0 0 1px var(--aurora-border);
   transition:
     transform 180ms var(--aurora-ease),
-    box-shadow 180ms var(--aurora-ease),
-    border-color 180ms var(--aurora-ease);
+    box-shadow 180ms var(--aurora-ease);
 }
 
-.aurora-orb:hover {
+.aurora-orb:hover .aurora-ball,
+.aurora-orb:focus-visible .aurora-ball {
   transform: translateY(-1px) scale(1.04);
   box-shadow:
     0 10px 26px -10px rgb(15 23 42 / 42%),
-    0 2px 4px rgb(15 23 42 / 14%);
+    0 2px 4px rgb(15 23 42 / 14%),
+    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 45%, transparent);
 }
 
-.aurora-orb:active,
-.aurora-orb.is-dragging {
+.aurora-orb:active .aurora-ball,
+.aurora-orb.is-dragging .aurora-ball {
   cursor: grabbing;
   transform: scale(1.02);
 }
 
 .aurora-orb:focus-visible {
   outline: 2px solid var(--aurora-brand);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
-.aurora-root[data-open] .aurora-orb {
-  border-color: color-mix(in srgb, var(--aurora-brand) 45%, transparent);
+.aurora-root[data-open] .aurora-ball {
+  box-shadow:
+    0 6px 20px -8px rgb(15 23 42 / 35%),
+    0 1px 2px rgb(15 23 42 / 12%),
+    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 45%, transparent);
 }
 
 /* A pinned card keeps a visible anchor even after the pointer leaves. */
-.aurora-root[data-pinned] .aurora-orb {
+.aurora-root[data-pinned] .aurora-ball {
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--aurora-brand) 40%, transparent),
-    0 10px 26px -10px rgb(15 23 42 / 42%);
+    0 10px 26px -10px rgb(15 23 42 / 42%),
+    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 55%, transparent);
 }
 
-.aurora-root:not([data-live]) .aurora-orb {
+.aurora-root:not([data-live]) .aurora-ball {
   filter: saturate(0.45);
 }
 
@@ -106,6 +123,7 @@
   position: relative;
   display: grid;
   place-items: center;
+  overflow: hidden;
   --aurora-glass: color-mix(in srgb, var(--aurora-brand) 8%, transparent);
   --aurora-glass-edge: color-mix(in srgb, var(--aurora-text) 16%, transparent);
   --aurora-water-speed: 6.5s;
@@ -554,7 +572,7 @@
   .aurora-row-fill,
   .aurora-disk-fill,
   .aurora-core,
-  .aurora-orb {
+  .aurora-ball {
     transition: none;
   }
 

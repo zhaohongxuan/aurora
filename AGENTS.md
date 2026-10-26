@@ -89,6 +89,11 @@ ctx.inject(['connection'], (scope) => {
   会把整段实参注释掉，报出来的是很远的 `Expected ":"`。注释要写在 `{` 属性对象里。
 - 面板是一个独立组件 `AuroraPanel`，`placement === null` 表示"还没量到尺寸"，
   此时渲染成 `visibility: hidden`，量完（`ResizeObserver`）再定位。
+- **`<button>` 只当命中区，别在它身上画圆形**：dsh 的 shell 对所有 `button` 有
+  `border-radius: var(--dsw-radius-md)`（12px）和 `box-sizing: border-box`，58px 的圆会变成
+  圆角方块（看起来就是"外面一圈不太圆的灰轮廓"）。按钮要 `box-sizing: content-box`、
+  `border: 0`、`background: none`、`box-shadow: none`，玻璃/描边/阴影都放在内层
+  `.aurora-ball` 上，用 `border-radius: 50%` + `inset` 阴影画边。
 
 ## 代码风格
 

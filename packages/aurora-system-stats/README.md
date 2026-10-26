@@ -121,6 +121,8 @@ src/
   水面高度由 `translate(0 y)` 直接给出；`prefers-reduced-motion` 下波浪停住。
 - **不依赖 dsh 的内部模块**：面板全部用 `createElement` 写，构建产物只需 `require("react")`，
   其余模块都在 bundle 内，HMR 换包时不会牵连别的插件。
+- **圆是真的圆**：dsh 的壳把每个 `button` 设成 12px 圆角和 border-box，所以 `<button>` 只当
+  命中区（透明、无边框），玻璃球、描边和阴影都画在内层圆形容器上。
 - **样式随主题走**：颜色全部来自 `--dsw-alias-*`，亮/暗色自动跟随；样式表以字符串注入，
   打上 `data-plugin` / `data-plugin-css` 标记，插件卸载时由模块系统一并摘掉。
 - **采样不抖动**：250ms 内的多次请求共用一次采样；磁盘容量 5 秒才重扫一次。
