@@ -5,7 +5,7 @@ Aurora 是一组 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 | 插件 | 作用 |
 | --- | --- |
-| [`aurora-system-stats`](packages/aurora-system-stats/README.md) | 网页悬浮球：实时展示 CPU、内存、磁盘占用与系统 load，点开是完整的面板 |
+| [`aurora-system-stats`](packages/aurora-system-stats/README.md) | 网页悬浮球：绿色水位球实时显示 CPU，悬停浮出 CPU / 内存 / 磁盘 / load 面板 |
 
 ## 目录结构
 

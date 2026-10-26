@@ -74,6 +74,13 @@
   border-color: color-mix(in srgb, var(--aurora-brand) 45%, transparent);
 }
 
+/* A pinned card keeps a visible anchor even after the pointer leaves. */
+.aurora-root[data-pinned] .aurora-orb {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--aurora-brand) 40%, transparent),
+    0 10px 26px -10px rgb(15 23 42 / 42%);
+}
+
 .aurora-root:not([data-live]) .aurora-orb {
   filter: saturate(0.45);
 }
@@ -93,36 +100,74 @@
   }
 }
 
-.aurora-orb-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--aurora-ok-to);
-  box-shadow: 0 0 0 2px var(--aurora-surface);
-}
+/* ---------- the ball and its water ---------- */
 
-.aurora-root:not([data-live]) .aurora-orb-dot {
-  background: var(--aurora-crit-to);
-}
-
-.aurora-ring {
+.aurora-ball {
   position: relative;
   display: grid;
   place-items: center;
+  --aurora-glass: color-mix(in srgb, var(--aurora-brand) 8%, transparent);
+  --aurora-glass-edge: color-mix(in srgb, var(--aurora-text) 16%, transparent);
+  --aurora-water-speed: 6.5s;
+  --aurora-water-sway: 3.4s;
 }
 
-.aurora-ring-arc {
-  transition: stroke-dashoffset 420ms var(--aurora-ease);
+.aurora-ball-svg {
+  display: block;
+  overflow: hidden;
+  border-radius: 50%;
 }
 
-.aurora-ring-content {
+/* The surface eases to its new height; the waves keep their own travel. */
+.aurora-ball-fill {
+  transition: transform 700ms var(--aurora-ease);
+}
+
+.aurora-ball-wave.is-front {
+  animation: aurora-wave var(--aurora-water-speed) linear infinite;
+}
+
+.aurora-ball-wave.is-back {
+  animation: aurora-wave calc(var(--aurora-water-speed) * 1.6) linear infinite reverse;
+}
+
+@keyframes aurora-wave {
+  to {
+    transform: translateX(-120px);
+  }
+}
+
+/* Not moving: an unreachable host, or a reader who asked for less motion. */
+.aurora-ball.is-offline .aurora-ball-wave {
+  animation: none;
+}
+
+.aurora-ball.is-offline {
+  filter: saturate(0.35);
+}
+
+.aurora-ball.is-offline .aurora-ball-fill {
+  transition: none;
+}
+
+/* A soft highlight rides above the plane, so the ball reads as a body. */
+.aurora-ball-shine {
+  position: absolute;
+  top: 12%;
+  left: 18%;
+  width: 34%;
+  height: 26%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 62%), rgb(255 255 255 / 0%));
+  pointer-events: none;
+}
+
+.aurora-ball-content {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
+  pointer-events: none;
 }
 
 .aurora-orb-label {
@@ -177,6 +222,11 @@
     opacity: 0;
     transform: translateY(4px) scale(0.98);
   }
+}
+
+.aurora-panel.is-measuring {
+  visibility: hidden;
+  animation: none;
 }
 
 .aurora-panel-head {
@@ -498,7 +548,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aurora-ring-arc,
+  .aurora-ball-fill,
+  .aurora-ball-wave,
   .aurora-tile-fill,
   .aurora-row-fill,
   .aurora-disk-fill,
@@ -508,7 +559,8 @@
   }
 
   .aurora-panel,
-  .aurora-orb-skeleton {
+  .aurora-orb-skeleton,
+  .aurora-ball-wave {
     animation: none;
   }
 }

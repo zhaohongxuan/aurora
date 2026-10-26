@@ -8,11 +8,13 @@
  */
 
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ring, Sparkline, type RingTone } from './charts.js'
-import { activeLanguage, copyFor } from './copy.js'
+import { Sparkline, type RingTone } from './charts.js'
+import { activeLanguage, copyFor, type Copy } from './copy.js'
 import { bytes, byteParts, duration, loadTone, loadValue, pct, pct1, tone } from './format.js'
 import { useDragPosition, type Point } from './useDragPosition.js'
 import { useSystemStats, type StatsState } from './useStats.js'
+import type { SystemStatsSnapshot } from '../types.js'
+import { WaterBall } from './waterball.js'
 
 /** Diameter of the collapsed orb, in px (matches `--aurora-orb` in styles.css). */
 export const ORB_SIZE = 58
@@ -169,22 +171,170 @@ function CoreGrid({ cores }: { readonly cores: readonly number[] }): ReactNode {
   )
 }
 
+
+interface AuroraPanelProps {
+  readonly snapshot: SystemStatsSnapshot
+  readonly copy: Copy
+  readonly stats: StatsState
+  /** Live and pinned state, which changes the header controls. */
+  readonly pinned: boolean
+  /** Placement, or `null` while the card is being measured for the first time. */
+  readonly placement: { anchor: string; side: string; top: number; left: number } | null
+  readonly panelRef: React.RefObject<HTMLDivElement | null>
+  /** The orb's own position; the card is positioned relative to it. */
+  readonly position: Point
+  readonly onReset: () => void
+  readonly onClose: () => void
+}
+
+/**
+ * The metrics card.
+ *
+ * `placement` is `null` on the first hover, when the card has to render once to be
+ * measured: it then paints hidden at the origin instead of jumping into view.
+ */
+function AuroraPanel({ snapshot, copy, stats, pinned, placement, panelRef, position, onReset, onClose }: AuroraPanelProps): ReactNode {
+  const cpuRatio = snapshot.cpuUsage
+  const memRatio = snapshot.memory.ratio
+  return h(
+    'div',
+    {
+      ref: panelRef,
+      className: ['aurora-panel', placement === null ? 'is-measuring' : ''].join(' ').trim(),
+      role: 'dialog',
+      'aria-label': copy.title,
+      'data-pinned': pinned || undefined,
+      'data-anchor': placement?.anchor,
+      'data-side': placement?.side,
+      style: {
+        width: PANEL_WIDTH,
+        ...(placement === null
+          ? { left: 0, top: 0, visibility: 'hidden' as const }
+          : { left: placement.left - position.x, top: placement.top - position.y }),
+      },
+    },
+    h(
+      'header',
+      { className: 'aurora-panel-head' },
+      h(
+        'div',
+        { className: 'aurora-panel-title' },
+        h('span', { className: 'aurora-panel-name' }, copy.title),
+        h('span', { className: 'aurora-panel-host' }, `${snapshot.hostname} · ${snapshot.platform}/${snapshot.arch}`),
+      ),
+      h(
+        'div',
+        { className: 'aurora-panel-actions' },
+        h(
+          'button',
+          { type: 'button', className: 'aurora-icon-btn', title: copy.reset, 'aria-label': copy.reset, onClick: onReset },
+          '⤾',
+        ),
+        h('button', { type: 'button', className: 'aurora-icon-btn', title: copy.collapse, 'aria-label': copy.collapse, onClick: onClose }, '✕'),
+      ),
+    ),
+    stats.live ? null : h('div', { className: 'aurora-banner' }, copy.offline),
+    h(
+      'div',
+      { className: 'aurora-tiles' },
+      h(StatTile, {
+        label: copy.cpu,
+        value: pct(snapshot.cpuUsage),
+        detail: `${snapshot.cpuCount} ${copy.cores}`,
+        ratio: cpuRatio ?? 0,
+        tone: tone(cpuRatio),
+      }),
+      h(StatTile, {
+        label: copy.memory,
+        value: pct(memRatio),
+        detail: copy.usedOf(bytes(snapshot.memory.used), bytes(snapshot.memory.total)),
+        ratio: memRatio,
+        tone: tone(memRatio),
+      }),
+      h(StatTile, {
+        label: copy.load,
+        value: loadValue(snapshot.load[0]),
+        detail: `${loadValue(snapshot.load[1])} · ${loadValue(snapshot.load[2])}`,
+        ratio: snapshot.cpuCount > 0 ? Math.min(1, snapshot.load[0] / snapshot.cpuCount) : 0,
+        tone: loadTone(snapshot.load[0], snapshot.cpuCount),
+      }),
+    ),
+    h(
+      'div',
+      { className: 'aurora-rows' },
+      h(MetricRow, {
+        label: copy.cpu,
+        value: pct1(snapshot.cpuUsage),
+        ratio: cpuRatio ?? 0,
+        tone: tone(cpuRatio),
+        history: stats.cpuHistory,
+      }),
+      h(MetricRow, {
+        label: copy.memory,
+        value: pct1(memRatio),
+        ratio: memRatio,
+        tone: tone(memRatio),
+        history: stats.memHistory,
+        detail: bytes(snapshot.memory.available),
+      }),
+    ),
+    h(CoreGrid, { cores: snapshot.cpuCores }),
+    snapshot.disks.length === 0
+      ? null
+      : h(
+          'section',
+          { className: 'aurora-disks' },
+          h('div', { className: 'aurora-section-title' }, copy.disk),
+          snapshot.disks.map((disk) =>
+            h(DiskRow, {
+              key: disk.mount,
+              mount: disk.mount,
+              used: disk.used,
+              total: disk.total,
+              ratio: disk.ratio,
+              title: disk.fsType === undefined ? disk.device : `${disk.device} · ${disk.fsType}`,
+            }),
+          ),
+        ),
+    h(
+      'footer',
+      { className: 'aurora-foot' },
+      h('span', null, `${copy.uptime} ${duration(snapshot.uptime)}`),
+      snapshot.swap === null ? null : h('span', null, `${copy.swap} ${pct(snapshot.swap.ratio)}`),
+      h('span', { className: 'aurora-foot-spacer' }),
+      h('span', null, `Node ${bytes(snapshot.proc.rss)}`),
+    ),
+  )
+}
+
 export interface AuroraOrbProps {
   /** Poll interval in ms; the host row's config reaches the browser through here. */
   readonly intervalMs?: number
 }
 
 /**
- * The orb and its panel. Click the orb to open, drag it anywhere, press `+` to
- * reset its position.
+ * The orb and its card.
+ *
+ * Hovering the ball reveals the card and leaving it puts the card away; the card
+ * itself is part of the same hover region, so moving the pointer from ball to card
+ * keeps it open. A click pins the card open (for reading numbers) and a second
+ * click releases it; Escape unpins. While the ball is being dragged the card
+ * stays shut so it cannot follow the pointer around the screen.
  */
 export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
-  const [open, setOpen] = useState(readOpen)
+  // `hovered` is the pointer being over the ball or the card at all.
+  const [hovered, setHovered] = useState(false)
+  // `pinned` is the click-to-keep-open state (read, so it survives a reload).
+  const [pinned, setPinned] = useState(readOpen)
   const [language, setLanguage] = useState(activeLanguage)
   const [panelHeight, setPanelHeight] = useState(320)
   const panelRef = useRef<HTMLDivElement | null>(null)
-  // A drag ends with a click; this flag keeps that gesture from toggling the panel.
+  // A drag ends with a click; this flag keeps that gesture from pinning the card.
   const draggedRef = useRef(false)
+  // Leaving the ball on the way to its card must not close the card in between,
+  // so closing waits a frame longer than any gap the two parts can have.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const open = pinned || hovered
   const drag = useDragPosition({
     storageKey: POSITION_KEY,
     size: ORB_SIZE,
@@ -212,26 +362,48 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
     return () => observer.disconnect()
   }, [open])
 
-  // Escape closes the panel, and so does a pointer landing outside both parts.
+  // Escape releases a pinned card; the hover state is the pointer's business.
   useEffect(() => {
-    if (!open) return
+    if (!pinned) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        setOpen(false)
-        writeOpen(false)
-      }
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setPinned(false)
+      writeOpen(false)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [open])
+  }, [pinned])
 
-  const toggle = useCallback(() => {
+  // Never leave a pending close behind on unmount.
+  useEffect(() => () => {
+    if (closeTimer.current !== undefined) clearTimeout(closeTimer.current)
+  }, [])
+
+  /** Hovering either part keeps the card open; a pending close is cancelled. */
+  const keep = useCallback(() => {
+    if (closeTimer.current !== undefined) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = undefined
+    }
+    setHovered(true)
+  }, [])
+
+  /** Leaving either part closes the card unless a click pinned it. */
+  const release = useCallback(() => {
+    if (closeTimer.current !== undefined) clearTimeout(closeTimer.current)
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = undefined
+      setHovered(false)
+    }, 60)
+  }, [])
+
+  const togglePin = useCallback(() => {
     if (draggedRef.current) {
       draggedRef.current = false
       return
     }
-    setOpen((current) => {
+    setPinned((current) => {
       const next = !current
       writeOpen(next)
       return next
@@ -243,7 +415,9 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
   }, [drag])
 
   const snapshot = stats.snapshot
-  const panel = open && snapshot !== undefined ? placePanel(drag.position, panelHeight) : null
+  // A card mid-drag would chase the pointer across the screen.
+  const showing = open && snapshot !== undefined && !drag.dragging
+  const panel = showing ? placePanel(drag.position, panelHeight) : null
   const cpuRatio = snapshot?.cpuUsage ?? 0
   const memRatio = snapshot?.memory.ratio ?? 0
   const primary = snapshot?.cpuUsage ?? snapshot?.memory.ratio ?? 0
@@ -269,30 +443,35 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
       style: { left: drag.position.x, top: drag.position.y },
       'data-aurora-orb': true,
       'data-open': open || undefined,
+      'data-pinned': pinned || undefined,
       'data-live': stats.live || undefined,
+      onMouseEnter: keep,
+      onMouseLeave: release,
+      // Focus behaves like hover, so keyboard users get the card too.
+      onFocus: keep,
+      onBlur: release,
     },
     h(
       'button',
       {
         type: 'button',
         className: ['aurora-orb', `aurora-tone-${primaryTone}`, drag.dragging ? 'is-dragging' : ''].join(' '),
-        'aria-label': open ? copy.collapse : copy.expand,
+        'aria-label': pinned ? copy.collapse : copy.expand,
         'aria-expanded': open,
+        'aria-pressed': pinned,
         title: snapshot === undefined ? copy.waiting : `${copy.cpu} ${pct(snapshot.cpuUsage)} · ${copy.memory} ${pct(memRatio)}`,
-        onClick: toggle,
+        // Click pins instead of opening: hover already opened it.
+        onClick: togglePin,
         ...handleProps,
-        ...(snapshot === undefined
-          ? { 'aria-busy': true }
-          : {}),
+        ...(snapshot === undefined ? { 'aria-busy': true } : {}),
       },
       snapshot === undefined
         ? h('span', { className: 'aurora-orb-skeleton' })
-        : h(Ring, {
-            ratio: stats.live ? primary : 0.0001,
+        : h(WaterBall, {
+            ratio: primary,
             tone: primaryTone,
             size: ORB_SIZE,
-            stroke: 4,
-            className: stats.live ? '' : 'is-offline',
+            live: stats.live,
             children: h(
               'span',
               { className: 'aurora-orb-label' },
@@ -300,132 +479,23 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
               h('span', { className: 'aurora-orb-caption' }, stats.live ? copy.cpu : '—'),
             ),
           }),
-      h('span', { className: 'aurora-orb-dot', 'aria-hidden': true }),
     ),
-    panel === null || snapshot === undefined
-      ? null
-      : h(
-          'div',
-          {
-            ref: panelRef,
-            className: 'aurora-panel',
-            role: 'dialog',
-            'aria-label': copy.title,
-            'data-anchor': panel?.anchor,
-            'data-side': panel?.side,
-            style: {
-              width: PANEL_WIDTH,
-              left: panel.left - drag.position.x,
-              top: panel.top - drag.position.y,
-            },
+    snapshot !== undefined && showing
+      ? h(AuroraPanel, {
+          snapshot,
+          copy,
+          stats,
+          pinned,
+          placement: panel,
+          panelRef,
+          position: drag.position,
+          onReset: reset,
+          onClose: () => {
+            setPinned(false)
+            writeOpen(false)
           },
-          h(
-            'header',
-            { className: 'aurora-panel-head' },
-            h(
-              'div',
-              { className: 'aurora-panel-title' },
-              h('span', { className: 'aurora-panel-name' }, copy.title),
-              h('span', { className: 'aurora-panel-host' }, `${snapshot.hostname} · ${snapshot.platform}/${snapshot.arch}`),
-            ),
-            h(
-              'div',
-              { className: 'aurora-panel-actions' },
-              h(
-                'button',
-                { type: 'button', className: 'aurora-icon-btn', title: copy.reset, 'aria-label': copy.reset, onClick: reset },
-                '⤾',
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'aurora-icon-btn',
-                  title: copy.collapse,
-                  'aria-label': copy.collapse,
-                  onClick: () => {
-                    setOpen(false)
-                    writeOpen(false)
-                  },
-                },
-                '✕',
-              ),
-            ),
-          ),
-          stats.live
-            ? null
-            : h('div', { className: 'aurora-banner' }, copy.offline),
-          h(
-            'div',
-            { className: 'aurora-tiles' },
-            h(StatTile, {
-              label: copy.cpu,
-              value: pct(snapshot.cpuUsage),
-              detail: `${snapshot.cpuCount} ${copy.cores}`,
-              ratio: cpuRatio,
-              tone: tone(cpuRatio),
-            }),
-            h(StatTile, {
-              label: copy.memory,
-              value: pct(memRatio),
-              detail: copy.usedOf(bytes(snapshot.memory.used), bytes(snapshot.memory.total)),
-              ratio: memRatio,
-              tone: tone(memRatio),
-            }),
-            h(StatTile, {
-              label: copy.load,
-              value: loadValue(snapshot.load[0]),
-              detail: `${loadValue(snapshot.load[1])} · ${loadValue(snapshot.load[2])}`,
-              ratio: snapshot.cpuCount > 0 ? Math.min(1, snapshot.load[0] / snapshot.cpuCount) : 0,
-              tone: loadTone(snapshot.load[0], snapshot.cpuCount),
-            }),
-          ),
-          h(
-            'div',
-            { className: 'aurora-rows' },
-            h(MetricRow, {
-              label: copy.cpu,
-              value: pct1(snapshot.cpuUsage),
-              ratio: cpuRatio,
-              tone: tone(cpuRatio),
-              history: stats.cpuHistory,
-            }),
-            h(MetricRow, {
-              label: copy.memory,
-              value: pct1(memRatio),
-              ratio: memRatio,
-              tone: tone(memRatio),
-              history: stats.memHistory,
-              detail: bytes(snapshot.memory.available),
-            }),
-          ),
-          h(CoreGrid, { cores: snapshot.cpuCores }),
-          snapshot.disks.length === 0
-            ? null
-            : h(
-                'section',
-                { className: 'aurora-disks' },
-                h('div', { className: 'aurora-section-title' }, copy.disk),
-                snapshot.disks.map((disk) =>
-                  h(DiskRow, {
-                    key: disk.mount,
-                    mount: disk.mount,
-                    used: disk.used,
-                    total: disk.total,
-                    ratio: disk.ratio,
-                    title: disk.fsType === undefined ? disk.device : `${disk.device} · ${disk.fsType}`,
-                  }),
-                ),
-              ),
-          h(
-            'footer',
-            { className: 'aurora-foot' },
-            h('span', null, `${copy.uptime} ${duration(snapshot.uptime)}`),
-            snapshot.swap === null ? null : h('span', null, `${copy.swap} ${pct(snapshot.swap.ratio)}`),
-            h('span', { className: 'aurora-foot-spacer' }),
-            h('span', null, `Node ${bytes(snapshot.proc.rss)}`),
-          ),
-        ),
+        })
+      : null,
   )
 }
 

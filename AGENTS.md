@@ -76,6 +76,20 @@ ctx.inject(['connection'], (scope) => {
 3. 公共类型放 `src/types.ts`，两端都从那里 `import type`。
 4. 跑 `node scripts/each.mjs build && node scripts/each.mjs typecheck`。
 
+## 悬浮球这一版的约定
+
+- **水位球不是环**：`src/client/waterball.ts` 画一个圆形裁剪里的 SVG，水面靠
+  `translate(0 y)` 定位，波浪是两个错相位的 `path` 各自平移。想改颜色只改该文件顶部的
+  `WATER` 表；不要退回 `stroke-dasharray` 的环。
+- **悬停展开，点击钉住**：`aurora-root` 的 `onMouseEnter/onMouseLeave`（外加
+  `onFocus/onBlur`）控制 `hovered`，点击切 `pinned`。不要把打开逻辑改回 `onClick`，
+  也不要把面板移出 `aurora-root`——那会让"球 → 面板"的移动变成两次进出而闪收。
+- **拖动时不出面板**：`showing = open && !drag.dragging`，否则卡片会跟着指针跑。
+- **JSX 里别把注释插在 `h(` 和第一个参数之间**：esbuild 走 TS 先剥离类型，
+  会把整段实参注释掉，报出来的是很远的 `Expected ":"`。注释要写在 `{` 属性对象里。
+- 面板是一个独立组件 `AuroraPanel`，`placement === null` 表示"还没量到尺寸"，
+  此时渲染成 `visibility: hidden`，量完（`ResizeObserver`）再定位。
+
 ## 代码风格
 
 - TypeScript 严格模式（`noUncheckedIndexedAccess` 打开），host 侧不引入 dsh 内部包的运行期依赖。
