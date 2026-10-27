@@ -89,11 +89,14 @@ ctx.inject(['connection'], (scope) => {
   会把整段实参注释掉，报出来的是很远的 `Expected ":"`。注释要写在 `{` 属性对象里。
 - 面板是一个独立组件 `AuroraPanel`，`placement === null` 表示"还没量到尺寸"，
   此时渲染成 `visibility: hidden`，量完（`ResizeObserver`）再定位。
-- **`<button>` 只当命中区，别在它身上画圆形**：dsh 的 shell 对所有 `button` 有
-  `border-radius: var(--dsw-radius-md)`（12px）和 `box-sizing: border-box`，58px 的圆会变成
-  圆角方块（看起来就是"外面一圈不太圆的灰轮廓"）。按钮要 `box-sizing: content-box`、
-  `border: 0`、`background: none`、`box-shadow: none`，玻璃/描边/阴影都放在内层
-  `.aurora-ball` 上，用 `border-radius: 50%` + `inset` 阴影画边。
+- **球只能有一条边，而且由 SVG 画**：`<button>`（命中区）、`.aurora-ball` 容器、SVG
+  任何一层都不要有 `border` / `inset` 阴影 / 外圈 `box-shadow`——多一层就是"圆里套一个圆"，
+  `inset` 阴影还会盖在自己内容上面。正确的画法在 `waterball.ts`：一个 `circle` 填充玻璃
+  渐变，`clipPath` 用同一个圆裁水，描边是同一个圆的 `stroke`，投影用
+  `feDropShadow`（跟着圆走，不是方盒子）。
+- dsh 的 shell 对所有 `button` 设了 `border-radius: var(--dsw-radius-md)`（12px）和
+  `box-sizing: border-box`，所以按钮必须 `box-sizing: content-box` + `border: 0` +
+  `background: none`；但**光改这个并不能去掉灰圈**，灰圈来自额外那层边。
 
 ## 代码风格
 

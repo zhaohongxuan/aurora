@@ -50,26 +50,27 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* The glass: one circle, drawn inside the button. */
+/* The ball carries no CSS edge of its own: the SVG draw is the whole shape, so a
+   `border`, an `inset` shadow or a wrapper frame would show up as a second circle
+   around it (and an inset shadow always paints over its own content). */
 .aurora-ball {
-  border-radius: 50%;
-  background: radial-gradient(120% 120% at 30% 20%, var(--aurora-surface), color-mix(in srgb, var(--aurora-surface) 82%, var(--aurora-brand)));
-  box-shadow:
-    0 6px 20px -8px rgb(15 23 42 / 35%),
-    0 1px 2px rgb(15 23 42 / 12%),
-    inset 0 0 0 1px var(--aurora-border);
-  transition:
-    transform 180ms var(--aurora-ease),
-    box-shadow 180ms var(--aurora-ease);
+  position: relative;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  transition: transform 180ms var(--aurora-ease);
+}
+
+.aurora-ball-svg {
+  display: block;
+  overflow: visible;
 }
 
 .aurora-orb:hover .aurora-ball,
 .aurora-orb:focus-visible .aurora-ball {
   transform: translateY(-1px) scale(1.04);
-  box-shadow:
-    0 10px 26px -10px rgb(15 23 42 / 42%),
-    0 2px 4px rgb(15 23 42 / 14%),
-    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 45%, transparent);
 }
 
 .aurora-orb:active .aurora-ball,
@@ -80,24 +81,18 @@
 
 .aurora-orb:focus-visible {
   outline: 2px solid var(--aurora-brand);
-  outline-offset: 3px;
+  outline-offset: 4px;
+  border-radius: 50%;
 }
 
-.aurora-root[data-open] .aurora-ball {
-  box-shadow:
-    0 6px 20px -8px rgb(15 23 42 / 35%),
-    0 1px 2px rgb(15 23 42 / 12%),
-    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 45%, transparent);
+/* Open or pinned: the rim brightens in place instead of gaining a second ring. */
+.aurora-root[data-open] .aurora-ball-rim,
+.aurora-root[data-pinned] .aurora-ball-rim {
+  stroke: color-mix(in srgb, var(--aurora-brand) 60%, transparent);
+  stroke-width: 1.5px;
 }
 
-/* A pinned card keeps a visible anchor even after the pointer leaves. */
-.aurora-root[data-pinned] .aurora-ball {
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--aurora-brand) 40%, transparent),
-    0 10px 26px -10px rgb(15 23 42 / 42%),
-    inset 0 0 0 1px color-mix(in srgb, var(--aurora-brand) 55%, transparent);
-}
-
+/* Unreachable host: the water goes quiet and grey without changing the shape. */
 .aurora-root:not([data-live]) .aurora-ball {
   filter: saturate(0.45);
 }
@@ -120,12 +115,8 @@
 /* ---------- the ball and its water ---------- */
 
 .aurora-ball {
-  position: relative;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
   --aurora-glass: color-mix(in srgb, var(--aurora-brand) 8%, transparent);
-  --aurora-glass-edge: color-mix(in srgb, var(--aurora-text) 16%, transparent);
+  --aurora-glass-edge: color-mix(in srgb, var(--aurora-text) 14%, transparent);
   --aurora-water-speed: 6.5s;
   --aurora-water-sway: 3.4s;
 }
