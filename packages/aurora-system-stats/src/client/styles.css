@@ -85,11 +85,13 @@
   border-radius: 50%;
 }
 
-/* Open or pinned: the rim brightens in place instead of gaining a second ring. */
+/* The rim is invisible at rest; it appears in place (no second ring, no offset) only
+   while the ball is hovered, focused or pinned, which is also when the card shows. */
+.aurora-root:hover .aurora-ball-rim,
 .aurora-root[data-open] .aurora-ball-rim,
 .aurora-root[data-pinned] .aurora-ball-rim {
-  stroke: color-mix(in srgb, var(--aurora-brand) 60%, transparent);
-  stroke-width: 1.5px;
+  stroke-opacity: 1;
+  stroke: color-mix(in srgb, var(--aurora-brand) 55%, transparent);
 }
 
 /* Unreachable host: the water goes quiet and grey without changing the shape. */

@@ -95,15 +95,15 @@ export function WaterBall({ ratio, tone, size, live = true, children }: WaterBal
           { id: `aurora-glass-${id}`, cx: '0.32', cy: '0.22', r: '0.9' },
           h('stop', { key: 'a', offset: '0%', stopColor: 'var(--aurora-surface)' }),
           h('stop', { key: 'b', offset: '78%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 88%, var(--aurora-brand))' }),
-          h('stop', { key: 'c', offset: '100%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 78%, var(--aurora-brand))' }),
+          h('stop', { key: 'c', offset: '100%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 88%, var(--aurora-brand))' }),
         ),
         // The one shadow, shaped like the ball instead of like a box: a soft pass for
         // lift plus a tight pass that hugs the rim.
         h(
           'filter',
-          { id: `aurora-drop-${id}`, x: '-25%', y: '-25%', width: '150%', height: '150%', colorInterpolationFilters: 'sRGB' },
-          h('feDropShadow', { dx: '0', dy: '3', stdDeviation: '3', floodColor: '#0f172a', floodOpacity: '0.16' }),
-          h('feDropShadow', { dx: '0', dy: '1', stdDeviation: '0.7', floodColor: '#0f172a', floodOpacity: '0.16' }),
+          { id: `aurora-drop-${id}`, x: '-20%', y: '-20%', width: '140%', height: '140%', colorInterpolationFilters: 'sRGB' },
+          // One tight pass: a wide halo on a 58px ball reads as a ring, not as depth.
+          h('feDropShadow', { dx: '0', dy: '1.5', stdDeviation: '1.6', floodColor: '#0f172a', floodOpacity: '0.22' }),
         ),
       ),
       // Everything painted is one circle: body, clip, shadow.
@@ -128,7 +128,10 @@ export function WaterBall({ ratio, tone, size, live = true, children }: WaterBal
             ],
           ),
         ),
-        // The rim: the same circle the water clips to, so there is exactly one edge.
+        // No stroke rim at rest. Against a white page a hairline around a white ball
+        // only reads as a grey outline; the edge is carried by the body gradient's
+        // own darkening toward the bottom and by the shadow. `.aurora-ball-rim` is
+        // painted only while hovering or pinned (see styles.css).
         h('circle', {
           cx: radius,
           cy: radius,
@@ -137,6 +140,7 @@ export function WaterBall({ ratio, tone, size, live = true, children }: WaterBal
           stroke: 'var(--aurora-glass-edge)',
           strokeWidth: 1,
           className: 'aurora-ball-rim',
+          style: { strokeOpacity: 0 } as Record<string, string>,
         }),
       ),
     ),

@@ -97,6 +97,10 @@ ctx.inject(['connection'], (scope) => {
 - dsh 的 shell 对所有 `button` 设了 `border-radius: var(--dsw-radius-md)`（12px）和
   `box-sizing: border-box`，所以按钮必须 `box-sizing: content-box` + `border: 0` +
   `background: none`；但**光改这个并不能去掉灰圈**，灰圈来自额外那层边。
+- **静止状态别有描边**：白底 + 白球时，1px 描边（哪怕只有 14% 灰）就是用户看到的那圈
+  "轮廓"。`waterball.ts` 里那个 `aurora-ball-rim` 圆默认 `stroke-opacity: 0`，只在
+  `:hover` / `[data-open]` / `[data-pinned]` 时显现；投影也只留一道紧的 `feDropShadow`
+  （dy 1.5 / std 1.6 / 22%），别用大范围光晕——58px 的球上那会读成一圈环。
 
 ## 代码风格
 
