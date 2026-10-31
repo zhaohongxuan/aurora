@@ -92,10 +92,14 @@ ctx.inject(['connection'], (scope) => {
 - dsh 的 shell 对所有 `button` 设了 `border-radius: var(--dsw-radius-md)`（12px）和
   `box-sizing: border-box`，所以按钮必须 `box-sizing: content-box` + `border: 0` +
   `background: none`；但**光改这个并不能去掉灰圈**，灰圈来自额外那层边。
-- **圆的形状交给 CSS，不交给绘制**：`.aurora-ball` 是固定方形 + `border-radius: 50%`
-  + `overflow: hidden`，形状由盒子决定。**不要**再给球加 SVG `feDropShadow`、偏心的
-  radial 高光、或画出来的 rim 圆来"修饰边界"——这些会让一个数学上正圆看起来像歪的鸡蛋
-  （投影只落底部 → 下沿变胖；高光偏左上 → 上沿变瘦）。水只画波浪，靠盒子裁圆。
+- **形状用 SVG 圆，别用 CSS 盒裁剪**：可见的圆是一个 SVG `circle`，它的 `<svg>` 带写死的
+  `width`/`height` 属性（58×58），所以无论外层盒子怎么伸缩都是正圆。**不要**改用
+  `.aurora-ball{border-radius:50%}+overflow:hidden` 来定形状——一旦盒子不再是正方形
+  （flex/grid 拉伸），水会被裁成**圆角矩形**（真实踩过）。盒子只负责摆放，`border-radius`
+  保持 0、`overflow: visible`，水靠 `clipPath` 的圆裁剪。
+- 也别加 SVG `feDropShadow`、偏心 radial 高光、或额外 rim 圆来"修饰边界"：投影只落底部
+  会让下沿变胖，高光偏左上会让上沿变瘦，读起来就是歪鸡蛋。玻璃体用**居中**的
+  `radialGradient`（cx/cy 0.5）。
 - 静止状态不要描边：白底白球上 1px 描边就是那圈"轮廓"；需要边界就用盒子自身的
   浅色渐变（surface 掺一点 brand），不要用 stroke / inset 线。
 

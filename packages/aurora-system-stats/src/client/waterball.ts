@@ -1,10 +1,12 @@
 /**
  * The orb itself: a glass ball filled with water to the current CPU level.
  *
- * Shape rule: the circle is made by CSS (`border-radius: 50%` + `overflow: hidden`
- * on a fixed square). No SVG `feDropShadow`, no off-centre highlight and no drawn
- * rim decide the silhouette — those were what made a mathematically round ball
- * read as a lopsided egg. The SVG now contributes only the water; the box clips it.
+ * Shape rule: the silhouette is an SVG circle whose element carries fixed
+ * width/height attributes, so the ball stays round no matter how the surrounding
+ * CSS box is sized (a `border-radius` + `overflow: hidden` box was clipped into a
+ * rounded rectangle when the box stopped being square). There is no `feDropShadow`,
+ * no off-centre highlight and no separate rim: those decorations were what made a
+ * round ball read as a lopsided egg.
  *
  * The water line is a real surface: an SVG wave whose vertical position is the
  * level, with two out-of-phase crests drifting at different speeds.
@@ -86,7 +88,18 @@ export function WaterBall({ ratio, tone, size, live = true, children }: WaterBal
           h('stop', { key: 'a', offset: '0%', stopColor: crest }),
           h('stop', { key: 'b', offset: '100%', stopColor: deep }),
         ),
+        // Glass body: a *centred* radial gradient, so the shading is symmetric and
+        // the ball stays perceptually round. No highlight offset, no rim.
+        h(
+          'radialGradient',
+          { id: `aurora-glass-${id}`, cx: '0.5', cy: '0.5', r: '0.72' },
+          h('stop', { key: 'a', offset: '0%', stopColor: 'var(--aurora-surface)' }),
+          h('stop', { key: 'b', offset: '70%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 90%, var(--aurora-brand))' }),
+          h('stop', { key: 'c', offset: '100%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 86%, var(--aurora-text))' }),
+        ),
       ),
+      // The glass disc: the one shape the whole ball reads from.
+      h('circle', { cx: radius, cy: radius, r: radius, fill: `url(#aurora-glass-${id})` }),
       h(
         'g',
         { clipPath: `url(#aurora-clip-${id})` },

@@ -11,7 +11,7 @@
 import css from './styles.css'
 
 /** Style tag identity: one per plugin artifact. */
-const TAG_ID = 'aurora-system-stats/styles.css'
+const TAG_ID = 'aurora-system-stats/styles.css?v=3'
 
 /** Adopt the bundle's stylesheet into the document, idempotently. */
 export function injectStyles(): void {
