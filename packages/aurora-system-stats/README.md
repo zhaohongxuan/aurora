@@ -121,8 +121,8 @@ src/
   水面高度由 `translate(0 y)` 直接给出；`prefers-reduced-motion` 下波浪停住。
 - **不依赖 dsh 的内部模块**：面板全部用 `createElement` 写，构建产物只需 `require("react")`，
   其余模块都在 bundle 内，HMR 换包时不会牵连别的插件。
-- **静止时没有描边**：白底上 1px 描边就会读成"一圈轮廓"，所以那条 rim 只在悬停/钉住时显现；
-  投影只保留一道很紧的接触阴影，不用大范围光晕。
+- **圆形由 CSS 决定**：球是一个固定方形 + `border-radius: 50%` + `overflow: hidden`，
+  水只在里面画波浪。没有 SVG 投影、没有偏心高光、没有描边圈——那些会让正圆看起来像椭圆。
 - **圆是真的圆，而且只有一条边**：`<button>` 只当命中区，`.aurora-ball` 容器无边框；
   玻璃渐变、水的 `clipPath`、描边和投影全部由**同一个 SVG 圆**画出来，投影用
   `feDropShadow` 顺着圆走。任何一层 CSS 再加 `border` 或 `inset` 阴影，都会变成

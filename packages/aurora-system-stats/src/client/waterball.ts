@@ -1,15 +1,13 @@
 /**
  * The orb itself: a glass ball filled with water to the current CPU level.
  *
- * The fill is a real water line, not a ring: an SVG wave whose vertical position
- * is the level, drawn inside a circular clip with two offset crests drifting at
- * different speeds so the surface never looks static.
+ * Shape rule: the circle is made by CSS (`border-radius: 50%` + `overflow: hidden`
+ * on a fixed square). No SVG `feDropShadow`, no off-centre highlight and no drawn
+ * rim decide the silhouette — those were what made a mathematically round ball
+ * read as a lopsided egg. The SVG now contributes only the water; the box clips it.
  *
- * Deliberately there is no CSS border, no inset shadow and no wrapping frame on
- * either the button or this element: the shell's own `button` rules and a second
- * concentric edge are exactly what turns a ball into "a circle inside another
- * circle". The single edge is the SVG circle the water clips to, so the rim and
- * the water can never disagree by a pixel.
+ * The water line is a real surface: an SVG wave whose vertical position is the
+ * level, with two out-of-phase crests drifting at different speeds.
  * @module aurora-system-stats/client/waterball
  */
 
@@ -55,10 +53,10 @@ export interface WaterBallProps {
 }
 
 /**
- * A circular glass ball with a water level.
+ * A circular ball with a water level.
  *
  * The level is clamped to 3–97% so the surface stays readable at both extremes.
- * @returns the ball element; it is exactly `size` square with no border of its own.
+ * @returns the ball element; the visible circle is its CSS box, not a drawing.
  */
 export function WaterBall({ ratio, tone, size, live = true, children }: WaterBallProps): ReactNode {
   const level = Math.min(0.97, Math.max(0.03, Number.isFinite(ratio) ? ratio : 0))
@@ -88,63 +86,25 @@ export function WaterBall({ ratio, tone, size, live = true, children }: WaterBal
           h('stop', { key: 'a', offset: '0%', stopColor: crest }),
           h('stop', { key: 'b', offset: '100%', stopColor: deep }),
         ),
-        // The glass body is a faint tint of the page's own surface, so the ball sits
-        // on any background without needing an outline to separate it.
-        h(
-          'radialGradient',
-          { id: `aurora-glass-${id}`, cx: '0.32', cy: '0.22', r: '0.9' },
-          h('stop', { key: 'a', offset: '0%', stopColor: 'var(--aurora-surface)' }),
-          h('stop', { key: 'b', offset: '78%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 88%, var(--aurora-brand))' }),
-          h('stop', { key: 'c', offset: '100%', stopColor: 'color-mix(in srgb, var(--aurora-surface) 88%, var(--aurora-brand))' }),
-        ),
-        // The one shadow, shaped like the ball instead of like a box: a soft pass for
-        // lift plus a tight pass that hugs the rim.
-        h(
-          'filter',
-          { id: `aurora-drop-${id}`, x: '-20%', y: '-20%', width: '140%', height: '140%', colorInterpolationFilters: 'sRGB' },
-          // One tight pass: a wide halo on a 58px ball reads as a ring, not as depth.
-          h('feDropShadow', { dx: '0', dy: '1.5', stdDeviation: '1.6', floodColor: '#0f172a', floodOpacity: '0.22' }),
-        ),
       ),
-      // Everything painted is one circle: body, clip, shadow.
       h(
         'g',
-        { filter: `url(#aurora-drop-${id})`, className: 'aurora-ball-body' },
-        h('circle', { cx: radius, cy: radius, r: radius, fill: `url(#aurora-glass-${id})` }),
+        { clipPath: `url(#aurora-clip-${id})` },
         h(
           'g',
-          { clipPath: `url(#aurora-clip-${id})` },
-          h(
-            'g',
-            {
-              className: 'aurora-ball-fill',
-              transform: `translate(0 ${surfaceY.toFixed(2)}) scale(${scale.toFixed(4)})`,
-            },
-            [
-              // The body: everything below the water line.
-              h('path', { key: 'body', d: `M0,20 L0,${PERIOD} L${PERIOD},${PERIOD} L${PERIOD},20 Z`, fill: `url(#aurora-water-${id})` }),
-              h('path', { key: 'back', className: 'aurora-ball-wave is-back', d: wavePath(Math.PI, PERIOD), fill: deep, opacity: 0.6 }),
-              h('path', { key: 'front', className: 'aurora-ball-wave is-front', d: wavePath(0, PERIOD), fill: `url(#aurora-water-${id})` }),
-            ],
-          ),
+          {
+            className: 'aurora-ball-fill',
+            transform: `translate(0 ${surfaceY.toFixed(2)}) scale(${scale.toFixed(4)})`,
+          },
+          [
+            // The body: everything below the water line.
+            h('path', { key: 'body', d: `M0,20 L0,${PERIOD} L${PERIOD},${PERIOD} L${PERIOD},20 Z`, fill: `url(#aurora-water-${id})` }),
+            h('path', { key: 'back', className: 'aurora-ball-wave is-back', d: wavePath(Math.PI, PERIOD), fill: deep, opacity: 0.6 }),
+            h('path', { key: 'front', className: 'aurora-ball-wave is-front', d: wavePath(0, PERIOD), fill: `url(#aurora-water-${id})` }),
+          ],
         ),
-        // No stroke rim at rest. Against a white page a hairline around a white ball
-        // only reads as a grey outline; the edge is carried by the body gradient's
-        // own darkening toward the bottom and by the shadow. `.aurora-ball-rim` is
-        // painted only while hovering or pinned (see styles.css).
-        h('circle', {
-          cx: radius,
-          cy: radius,
-          r: radius - 0.5,
-          fill: 'none',
-          stroke: 'var(--aurora-glass-edge)',
-          strokeWidth: 1,
-          className: 'aurora-ball-rim',
-          style: { strokeOpacity: 0 } as Record<string, string>,
-        }),
       ),
     ),
-    h('span', { className: 'aurora-ball-shine', 'aria-hidden': true }),
     children === undefined ? null : h('div', { className: 'aurora-ball-content' }, children),
   )
 }

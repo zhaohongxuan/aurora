@@ -50,22 +50,36 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* The ball carries no CSS edge of its own: the SVG draw is the whole shape, so a
-   `border`, an `inset` shadow or a wrapper frame would show up as a second circle
-   around it (and an inset shadow always paints over its own content). */
+/* The ball's circle is its own CSS box: a fixed square with border-radius 50% and
+   overflow hidden. Nothing drawn decides the silhouette — that is what keeps it
+   perfectly round. Water is clipped by this box, so there is no second edge. */
 .aurora-ball {
   position: relative;
   display: grid;
   place-items: center;
+  box-sizing: border-box;
   border: 0;
-  background: none;
+  border-radius: 50%;
+  overflow: hidden;
+  /* A faint glass tint, darker toward the bottom: enough to read as a body on a
+     white page without a stroke. */
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--aurora-surface) 96%, var(--aurora-brand)) 0%,
+      color-mix(in srgb, var(--aurora-surface) 88%, var(--aurora-brand)) 62%,
+      color-mix(in srgb, var(--aurora-surface) 84%, var(--aurora-text)) 100%);
   box-shadow: none;
   transition: transform 180ms var(--aurora-ease);
+  --aurora-water-speed: 6.5s;
 }
 
+/* The water fills the box; the box's radius clips it to a circle. */
 .aurora-ball-svg {
+  position: absolute;
+  inset: 0;
   display: block;
-  overflow: visible;
+  width: 100%;
+  height: 100%;
 }
 
 .aurora-orb:hover .aurora-ball,
@@ -83,15 +97,6 @@
   outline: 2px solid var(--aurora-brand);
   outline-offset: 4px;
   border-radius: 50%;
-}
-
-/* The rim is invisible at rest; it appears in place (no second ring, no offset) only
-   while the ball is hovered, focused or pinned, which is also when the card shows. */
-.aurora-root:hover .aurora-ball-rim,
-.aurora-root[data-open] .aurora-ball-rim,
-.aurora-root[data-pinned] .aurora-ball-rim {
-  stroke-opacity: 1;
-  stroke: color-mix(in srgb, var(--aurora-brand) 55%, transparent);
 }
 
 /* Unreachable host: the water goes quiet and grey without changing the shape. */
@@ -114,20 +119,7 @@
   }
 }
 
-/* ---------- the ball and its water ---------- */
-
-.aurora-ball {
-  --aurora-glass: color-mix(in srgb, var(--aurora-brand) 8%, transparent);
-  --aurora-glass-edge: color-mix(in srgb, var(--aurora-text) 14%, transparent);
-  --aurora-water-speed: 6.5s;
-  --aurora-water-sway: 3.4s;
-}
-
-.aurora-ball-svg {
-  display: block;
-  overflow: hidden;
-  border-radius: 50%;
-}
+/* ---------- the water ---------- */
 
 /* The surface eases to its new height; the waves keep their own travel. */
 .aurora-ball-fill {
@@ -153,24 +145,8 @@
   animation: none;
 }
 
-.aurora-ball.is-offline {
-  filter: saturate(0.35);
-}
-
 .aurora-ball.is-offline .aurora-ball-fill {
   transition: none;
-}
-
-/* A soft highlight rides above the plane, so the ball reads as a body. */
-.aurora-ball-shine {
-  position: absolute;
-  top: 12%;
-  left: 18%;
-  width: 34%;
-  height: 26%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(255 255 255 / 62%), rgb(255 255 255 / 0%));
-  pointer-events: none;
 }
 
 .aurora-ball-content {
