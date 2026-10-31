@@ -57,11 +57,12 @@ export interface WaterBallProps {
 /**
  * A circular ball with a water level.
  *
- * The level is clamped to 3–97% so the surface stays readable at both extremes.
+ * The level is clamped to 20–97%: the floor keeps a visible base of water even
+ * when the CPU is idle, and the ceiling keeps the surface readable at the top.
  * @returns the ball element; the visible circle is its CSS box, not a drawing.
  */
 export function WaterBall({ ratio, tone, size, live = true, children }: WaterBallProps): ReactNode {
-  const level = Math.min(0.97, Math.max(0.03, Number.isFinite(ratio) ? ratio : 0))
+  const level = Math.min(0.97, Math.max(0.2, Number.isFinite(ratio) ? ratio : 0))
   const radius = size / 2
   const [crest, deep] = WATER[tone]
   const id = `w${size}`
