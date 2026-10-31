@@ -100,8 +100,8 @@ ctx.inject(['connection'], (scope) => {
 - 也别加 SVG `feDropShadow`、偏心 radial 高光、或额外 rim 圆来"修饰边界"：投影只落底部
   会让下沿变胖，高光偏左上会让上沿变瘦，读起来就是歪鸡蛋。玻璃体用**居中**的
   `radialGradient`（cx/cy 0.5）。
-- 静止状态不要描边：白底白球上 1px 描边就是那圈"轮廓"；需要边界就用盒子自身的
-  浅色渐变（surface 掺一点 brand），不要用 stroke / inset 线。
+- 静止状态不要描边：白底白球上 1px 描边就是那圈"轮廓"。球体的边界感来自 SVG 玻璃圆
+  自己的居中渐变（surface 掺一点 brand/text），不要用 `stroke` 或 CSS `inset` 线。
 
 ## 代码风格
 
