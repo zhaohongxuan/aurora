@@ -9,6 +9,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { promises as fs, statfsSync } from 'node:fs'
 import os from 'node:os'
 import type {
@@ -69,6 +70,22 @@ function ratio(part: number, whole: number): number {
 async function readText(path: string): Promise<string | null> {
   try {
     return await fs.readFile(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+const execFileAsync = promisify(execFile)
+
+/** Run a short command, returning trimmed stdout or `null` on any failure. */
+async function run(command: string, args: string[]): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      timeout: 2000,
+      maxBuffer: 1 << 20,
+      windowsHide: true,
+    })
+    return String(stdout).trim()
   } catch {
     return null
   }
@@ -263,7 +280,102 @@ function disksFromDf(): Promise<DiskInfo[]> {
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* macOS (Darwin) sampling — sysctl / vm_stat / BSD df, all text-based  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Aggregate CPU ticks from `sysctl kern.cp_time`: user nice system idle intr,
+ * in 100 Hz ticks (USER_HZ == 100 on Darwin too). Returns `null` when the
+ * machine does not expose them.
+ */
+async function readMacCpuTimes(): Promise<CpuTimes | null> {
+  const text = await run('sysctl', ['-n', 'kern.cp_time'])
+  if (text === null) return null
+  const fields = text.trim().split(/\s+/).map((field) => num(field))
+  // user nice system idle intr
+  const idle = (fields[3] ?? 0) + (fields[4] ?? 0)
+  const total = (fields[0] ?? 0) + (fields[1] ?? 0) + (fields[2] ?? 0) + idle
+  if (total <= 0) return null
+  return { idle, total }
+}
+
+/** Swap from `sysctl vm.swapusage`: `total = X  used = Y  free = Z  ...`. */
+async function readMacSwap(): Promise<SwapInfo | null> {
+  const text = await run('sysctl', ['-n', 'vm.swapusage'])
+  if (text === null) return null
+  const grab = (key: string): number | null => {
+    const match = new RegExp(`${key}\\s*=\\s*([\\d.]+)([KMGTP]?)`, 'i').exec(text)
+    if (match === null) return null
+    const units = { '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4, P: 1024 ** 5 }
+    const power = units[(match[2] ?? '').toUpperCase() as keyof typeof units] ?? 1
+    return num(match[1]) * power
+  }
+  const total = grab('total')
+  const used = grab('used')
+  if (total === null || total <= 0 || used === null) return null
+  return { total, used, ratio: ratio(used, total) }
+}
+
+/**
+ * Available memory from `vm_stat` as `free + inactive + speculative` pages,
+ * which is how macOS itself reports "memory available to new apps". Falls back
+ * to `os.freemem()` (free only, under-reports) when `vm_stat` is unavailable.
+ */
+async function readMacAvailable(): Promise<number> {
+  const pageSize = num((await run('sysctl', ['-n', 'hw.pagesize'])) ?? undefined, 16384)
+  const text = await run('vm_stat', [])
+  if (text === null) return os.freemem()
+  const pages = new Map<string, number>()
+  for (const line of text.split('\n')) {
+    const match = /^"?(?:Pages\s+)?([\w\s-]+?)"?:\s+([\d.]+)\.?$/.exec(line.trim())
+    if (match === null) continue
+    pages.set(match[1] as string, num(match[2]))
+  }
+  const free = pages.get('free') ?? 0
+  const inactive = pages.get('inactive') ?? 0
+  const speculative = pages.get('speculative') ?? 0
+  // Compressed/swap-backed pages count toward "used", so don't add them here.
+  return (free + inactive + speculative) * pageSize
+}
+
+/**
+ * macOS filesystems from BSD `df -k` (1 KB blocks, no GNU `-P`). APFS makes a
+ * single volume look like many `.../System/Volumes/...` mounts, so collapse by
+ * device and drop the internal/read-only ones the user can't fill.
+ */
+async function disksFromMacDf(): Promise<DiskInfo[]> {
+  const text = await run('df', ['-k'])
+  if (text === null) return []
+  const rows: DiskInfo[] = []
+  const seenDevices = new Set<string>()
+  for (const line of text.split('\n').slice(1)) {
+    // device blocks used available capacity mount
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 6) continue
+    const mount = fields.slice(5).join(' ')
+    if (!mount.startsWith('/')) continue
+    const total = num(fields[1]) * 1024
+    if (total <= 0) continue
+    const device = fields[0] as string
+    // APFS: `/` and `/System/Volumes/Data` are one pool — keep the most full one
+    // and drop the read-only snapshot mount.
+    if (seenDevices.has(device)) continue
+    seenDevices.add(device)
+    rows.push({
+      mount,
+      device,
+      total,
+      used: num(fields[2]) * 1024,
+      available: num(fields[3]) * 1024,
+      ratio: ratio(num(fields[2]), num(fields[1])),
+    })
+  }
+  return tidyDisks(rows)
+}
+
 let previous: ProcStat | null = null
+let previousMacCpu: CpuTimes | null = null
 let seq = 0
 let mounts: MountCandidate[] | null = null
 let diskAt = 0
@@ -275,7 +387,9 @@ let diskRows: DiskInfo[] = []
  * @returns the completed snapshot; never throws.
  */
 export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
-  const linux = process.platform === 'linux'
+  const platform = process.platform
+  const linux = platform === 'linux'
+  const darwin = platform === 'darwin'
   const [statText, memText, load] = await Promise.all([
     linux ? readText('/proc/stat') : Promise.resolve(null),
     linux ? readText('/proc/meminfo') : Promise.resolve(null),
@@ -287,24 +401,40 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
   let cpuCores: number[] = []
   let cpuBusyMs: number | null = null
 
-  if (statText !== null) {
-    const tick = parseProcStat(statText)
-    const earlier = previous
-    const aggregate = tick.cpu
-    cpuUsage = aggregate === null ? null : deltaRatio(aggregate, earlier?.cpu ?? undefined)
-    cpuCores = tick.cores.map((core, index) => deltaRatio(core, earlier?.cores[index]) ?? 0)
-    if (aggregate !== null) {
-      cpuBusyMs = Math.round(((aggregate.total - aggregate.idle) / USER_HZ) * 1000)
+  if (linux) {
+    if (statText !== null) {
+      const tick = parseProcStat(statText)
+      const earlier = previous
+      const aggregate = tick.cpu
+      cpuUsage = aggregate === null ? null : deltaRatio(aggregate, earlier?.cpu ?? undefined)
+      cpuCores = tick.cores.map((core, index) => deltaRatio(core, earlier?.cores[index]) ?? 0)
+      if (aggregate !== null) {
+        cpuBusyMs = Math.round(((aggregate.total - aggregate.idle) / USER_HZ) * 1000)
+      }
+      previous = tick
     }
-    previous = tick
+  } else if (darwin) {
+    // Darwin ticks come from `sysctl kern.cp_time`; same delta math as `/proc/stat`.
+    const tick = await readMacCpuTimes()
+    const earlier = previousMacCpu
+    cpuUsage = deltaRatio(tick ?? { idle: 0, total: 0 }, earlier ?? undefined)
+    if (tick !== null && earlier !== undefined) {
+      cpuBusyMs = Math.round(((tick.total - tick.idle) / USER_HZ) * 1000)
+    }
+    // `kern.cp_time` is aggregate only; per-core ticks need a native binding we
+    // deliberately avoid, so the core grid stays empty on macOS.
+    cpuCores = []
+    previousMacCpu = tick
   } else {
     // No tick counters on this platform: a load-normalized estimate is all there is.
     cpuUsage = ratio(load[0], Math.max(1, count.length))
   }
 
-  const meminfo = memText === null ? null : parseMeminfo(memText)
+  let meminfo: Meminfo | null = null
+  if (memText !== null) meminfo = parseMeminfo(memText)
+
   const memTotal = meminfo?.total ?? os.totalmem()
-  const memAvailable = meminfo?.available ?? os.freemem()
+  const memAvailable = darwin ? await readMacAvailable() : meminfo?.available ?? os.freemem()
   const memory: MemoryInfo = {
     total: memTotal,
     used: Math.max(0, memTotal - memAvailable),
@@ -317,8 +447,14 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
 
   if (now - diskAt > DISK_TTL_MS) {
     diskAt = now
-    mounts ??= linux ? await mountCandidates() : []
-    diskRows = mounts.length > 0 ? disksFromMounts(mounts) : await disksFromDf()
+    if (linux) {
+      mounts ??= await mountCandidates()
+      diskRows = mounts.length > 0 ? disksFromMounts(mounts) : await disksFromDf()
+    } else if (darwin) {
+      diskRows = await disksFromMacDf()
+    } else {
+      diskRows = await disksFromDf()
+    }
   }
 
   const rss = process.memoryUsage()
@@ -328,7 +464,7 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     sampledAt: now,
     seq,
     hostname: os.hostname(),
-    platform: process.platform,
+    platform,
     arch: process.arch,
     release: os.release(),
     uptime: os.uptime(),
@@ -339,7 +475,7 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     cpuBusyMs,
     load,
     memory,
-    swap: meminfo?.swap ?? null,
+    swap: darwin ? await readMacSwap() : meminfo?.swap ?? null,
     disks: diskRows,
     proc: { rss: rss.rss, heapUsed: rss.heapUsed },
   }
@@ -348,6 +484,7 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
 /** Drop cached state so a reload starts from a clean tick. */
 export function resetSampler(): void {
   previous = null
+  previousMacCpu = null
   seq = 0
   mounts = null
   diskAt = 0
