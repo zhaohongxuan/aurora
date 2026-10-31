@@ -36,13 +36,21 @@ const VIRTUAL_FS = new Set([
   'debugfs', 'tracefs', 'securityfs', 'pstore', 'bpf', 'mqueue', 'hugetlbfs',
   'configfs', 'fusectl', 'autofs', 'binfmt_misc', 'nsfs', 'rpc_pipefs',
   'selinuxfs', 'efivarfs', 'squashfs', 'fuse.lxcfs', 'fuse.gvfsd-fuse',
+  'overlay',
 ])
 
 /** Mount-point prefixes that never belong in a "how full is my machine" list. */
 const VIRTUAL_MOUNTS = ['/proc', '/sys', '/dev', '/run', '/snap']
 
+/**
+ * Exact mount points to hide even though they carry a real filesystem: OS
+ * partitions the user can't grow, and `/home` when it is a btrfs subvolume of an
+ * already-listed data volume (a duplicate of `/volume1` here, not a second disk).
+ */
+const SKIP_MOUNTS = new Set(['/boot', '/rootfs', '/ugreen', '/mnt/factory', '/overlay', '/home'])
+
 /** How many filesystems the panel shows. */
-const DISK_ROWS = 4
+const DISK_ROWS = 8
 /** Disk capacity changes slowly; rescan it at most this often (ms). */
 const DISK_TTL_MS = 5000
 /** Linux reports `/proc/stat` in USER_HZ ticks, which is 100 on every real target. */
@@ -158,6 +166,7 @@ function decodeMountField(value: string): string {
 
 function isInterestingMount(mount: string, fsType: string): boolean {
   if (VIRTUAL_FS.has(fsType)) return false
+  if (SKIP_MOUNTS.has(mount)) return false
   return !VIRTUAL_MOUNTS.some((prefix) => mount === prefix || mount.startsWith(`${prefix}/`))
 }
 
