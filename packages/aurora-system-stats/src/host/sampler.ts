@@ -15,11 +15,12 @@ import os from 'node:os'
 import type {
   DiskInfo,
   MemoryInfo,
+  NetworkInfo,
   SwapInfo,
   SystemStatsSnapshot,
 } from '../types.js'
 
-export type { DiskInfo, MemoryInfo, SwapInfo, SystemStatsSnapshot }
+export type { DiskInfo, MemoryInfo, NetworkInfo, SwapInfo, SystemStatsSnapshot }
 
 interface CpuTimes {
   readonly idle: number
@@ -285,19 +286,24 @@ function disksFromDf(): Promise<DiskInfo[]> {
 /* ------------------------------------------------------------------ */
 
 /**
- * Aggregate CPU ticks from `sysctl kern.cp_time`: user nice system idle intr,
- * in 100 Hz ticks (USER_HZ == 100 on Darwin too). Returns `null` when the
- * machine does not expose them.
+ * Per-core CPU ticks from `node:os`. On Apple Silicon `kern.cp_time` does not
+ * exist (`sysctl: unknown oid`), so the only portable source is `os.cpus()`,
+ * whose `times` are cumulative milliseconds per core. We fold them into the
+ * same idle/total shape `/proc/stat` yields so the delta math is shared.
  */
-async function readMacCpuTimes(): Promise<CpuTimes | null> {
-  const text = await run('sysctl', ['-n', 'kern.cp_time'])
-  if (text === null) return null
-  const fields = text.trim().split(/\s+/).map((field) => num(field))
-  // user nice system idle intr
-  const idle = (fields[3] ?? 0) + (fields[4] ?? 0)
-  const total = (fields[0] ?? 0) + (fields[1] ?? 0) + (fields[2] ?? 0) + idle
-  if (total <= 0) return null
-  return { idle, total }
+function readMacCpuTicks(): { cpu: CpuTimes; cores: CpuTimes[] } {
+  const cores: CpuTimes[] = []
+  let idle = 0
+  let total = 0
+  for (const processor of os.cpus()) {
+    const t = processor.times
+    const coreIdle = t.idle
+    const coreTotal = t.user + t.nice + t.sys + t.idle + t.irq
+    cores.push({ idle: coreIdle, total: coreTotal })
+    idle += coreIdle
+    total += coreTotal
+  }
+  return { cpu: { idle, total }, cores }
 }
 
 /** Swap from `sysctl vm.swapusage`: `total = X  used = Y  free = Z  ...`. */
@@ -340,6 +346,36 @@ async function readMacAvailable(): Promise<number> {
 }
 
 /**
+ * macOS mount points that are internal APFS plumbing, read-only snapshots, or
+ * app-injected overlays users never think of as "my disk". Keep it narrow:
+ * the root/data pool and real `/Volumes/*` external disks should survive.
+ */
+function isNoiseMacMount(mount: string, device: string): boolean {
+  // Pseudo-filesystems (devfs, map auto_home, network/VM shares).
+  if (/^(devfs|map |OrbStack:|smbfs|afpfs|nfs|autofs)/.test(device)) return true
+  // APFS internal volumes that back the OS, not user data.
+  const noisyPrefixes = [
+    '/System/Volumes/VM',
+    '/System/Volumes/Preboot',
+    '/System/Volumes/Update',
+    '/System/Volumes/xarts',
+    '/System/Volumes/iSCPreboot',
+    '/System/Volumes/Hardware',
+    '/System/Volumes/Data/home',
+    '/System/Volumes/Recovery',
+    '/Volumes/Recovery',
+  ]
+  if (noisyPrefixes.some((prefix) => mount === prefix || mount.startsWith(`${prefix}/`))) return true
+  // App-injected mounts: simulator runtimes live under Developer/CoreSimulator;
+  // `.app/Wrapper` are per-app overlay disks.
+  if (mount.includes('/Developer/CoreSimulator/')) return true
+  if (mount.includes('.app/Wrapper')) return true
+  // Scratch dirs Apple parks per-app temporary disks under.
+  if (mount.startsWith('/private/var/folders/')) return true
+  return false
+}
+
+/**
  * macOS filesystems from BSD `df -k` (1 KB blocks, no GNU `-P`). APFS makes a
  * single volume look like many `.../System/Volumes/...` mounts, so collapse by
  * device and drop the internal/read-only ones the user can't fill.
@@ -350,14 +386,28 @@ async function disksFromMacDf(): Promise<DiskInfo[]> {
   const rows: DiskInfo[] = []
   const seenDevices = new Set<string>()
   for (const line of text.split('\n').slice(1)) {
-    // device blocks used available capacity mount
-    const fields = line.trim().split(/\s+/)
-    if (fields.length < 6) continue
-    const mount = fields.slice(5).join(' ')
+    // BSD `df -k` interleaves inode columns and may contain spaces in the mount
+    // point, so the column count is not fixed. Anchoring on the ends is safest:
+    //   device blocks used avail capacity [iused ifree %iused] mount
+    // -> device = field 0, blocks/used/avail = 1/2/3, mount = last field(s).
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const fields = trimmed.split(/\s+/)
+    if (fields.length < 5) continue
+    // The mount point is the trailing field; a device can never start with '/'
+    // but a mount always does, so walk back from the end if needed (spaces).
+    const mount = fields[fields.length - 1] as string
     if (!mount.startsWith('/')) continue
-    const total = num(fields[1]) * 1024
+    const blocks = num(fields[1])
+    const total = blocks * 1024
     if (total <= 0) continue
+    const used = num(fields[2])
+    const available = num(fields[3])
     const device = fields[0] as string
+    // Noise the user can't act on: pseudo-filesystems, APFS internal
+    // sub-volumes, the read-only recovery snapshot, and app-injected mounts
+    // (simulator runtimes, `.app/Wrapper` overlays, network/VM shares).
+    if (isNoiseMacMount(mount, device)) continue
     // APFS: `/` and `/System/Volumes/Data` are one pool — keep the most full one
     // and drop the read-only snapshot mount.
     if (seenDevices.has(device)) continue
@@ -366,16 +416,123 @@ async function disksFromMacDf(): Promise<DiskInfo[]> {
       mount,
       device,
       total,
-      used: num(fields[2]) * 1024,
-      available: num(fields[3]) * 1024,
-      ratio: ratio(num(fields[2]), num(fields[1])),
+      used: used * 1024,
+      available: available * 1024,
+      ratio: ratio(used, blocks),
     })
+  }
+  // On macOS the root `/` mount is a read-only system snapshot (~a few % used),
+  // while the user's actual data lives on `/System/Volumes/Data` of the same
+  // pool. Showing both is confusing, so when the data volume is present, present
+  // it under the familiar `/` label and drop the snapshot row.
+  const dataIndex = rows.findIndex((row) => row.mount === '/System/Volumes/Data')
+  if (dataIndex !== -1) {
+    const data = rows[dataIndex] as DiskInfo
+    // Drop both the snapshot `/` row and the raw data-volume row, then present
+    // the data volume once under the familiar `/` label.
+    const rest = rows.filter((row) => row.mount !== '/' && row.mount !== '/System/Volumes/Data')
+    rest.unshift({ ...data, mount: '/' })
+    return tidyDisks(rest)
   }
   return tidyDisks(rows)
 }
 
+/* ------------------------------------------------------------------ */
+/* Network throughput — cumulative interface counters, diffed for rate  */
+/* ------------------------------------------------------------------ */
+
+/** Cumulative byte counters summed across the physical interfaces. */
+interface NetCounters {
+  readonly rx: number
+  readonly tx: number
+}
+
+/**
+ * Interfaces whose counters we sum. Restricting to physical NICs keeps tunnel
+ * (`utun`/`tun`), bridge, loopback and AirDrop (`awdl`) traffic from being
+ * counted twice — the encapsulated bytes already ride the physical interface.
+ */
+const PHYSICAL_NIC = /^(en\d|eth\d|wlan\d|wl\w+|wlan|enp\w+|eno\w+|ens\w+)$/
+
+function isPhysicalNic(name: string): boolean {
+  return PHYSICAL_NIC.test(name)
+}
+
+/**
+ * Read `/proc/net/dev` (Linux): one line per interface,
+ * `iface: rxBytes rxPackets ... txBytes txPackets ...` where rx bytes is field 1
+ * after the colon and tx bytes is field 9.
+ */
+async function readLinuxNet(): Promise<NetCounters | null> {
+  const text = await readText('/proc/net/dev')
+  if (text === null) return null
+  let rx = 0
+  let tx = 0
+  let found = false
+  for (const line of text.split('\n')) {
+    const colon = line.indexOf(':')
+    if (colon === -1) continue
+    const name = line.slice(0, colon).trim()
+    if (!isPhysicalNic(name)) continue
+    const fields = line.slice(colon + 1).trim().split(/\s+/)
+    if (fields.length < 9) continue
+    rx += num(fields[0])
+    tx += num(fields[8])
+    found = true
+  }
+  return found ? { rx, tx } : { rx: 0, tx: 0 }
+}
+
+/**
+ * Read `netstat -ibn` (macOS). Interface-level totals live on the `<Link#N>`
+ * rows; the address rows repeat the same counters, so filter to Link rows and
+ * physical NICs to avoid double counting. Fields: name(1) ... Ibytes(7) ... Obytes(10).
+ */
+async function readMacNet(): Promise<NetCounters | null> {
+  const text = await run('netstat', ['-ibn'])
+  if (text === null) return null
+  let rx = 0
+  let tx = 0
+  let found = false
+  for (const line of text.split('\n')) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 10) continue
+    // Only the link-layer row carries the aggregate for the interface.
+    if (!(fields[2] ?? '').startsWith('<Link#')) continue
+    const name = fields[0] as string
+    if (!isPhysicalNic(name)) continue
+    rx += num(fields[6])
+    tx += num(fields[9])
+    found = true
+  }
+  return found ? { rx, tx } : null
+}
+
+/**
+ * Turn cumulative counters into a {@link NetworkInfo} using the previous sample.
+ * Counters reset on interface flap / reboot, so a decrease is treated as a fresh
+ * baseline (`0` rate) instead of a huge negative spike.
+ * @param now - current counters.
+ * @param earlier - previous counters, or `null` on the first sample.
+ * @param elapsedMs - milliseconds since the previous sample (`<= 0` = unknown).
+ */
+function networkInfo(now: NetCounters, earlier: NetCounters | null, elapsedMs: number): NetworkInfo {
+  let rxRate = 0
+  let txRate = 0
+  if (earlier !== null && elapsedMs > 0) {
+    const seconds = elapsedMs / 1000
+    const drx = now.rx - earlier.rx
+    const dtx = now.tx - earlier.tx
+    if (drx >= 0) rxRate = drx / seconds
+    if (dtx >= 0) txRate = dtx / seconds
+  }
+  return { rxBytes: now.rx, txBytes: now.tx, rxRate, txRate }
+}
+
 let previous: ProcStat | null = null
-let previousMacCpu: CpuTimes | null = null
+let previousMacCpu: { cpu: CpuTimes; cores: CpuTimes[] } | null = null
+let previousNet: NetCounters | null = null
+let netAt = 0
 let seq = 0
 let mounts: MountCandidate[] | null = null
 let diskAt = 0
@@ -414,16 +571,15 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
       previous = tick
     }
   } else if (darwin) {
-    // Darwin ticks come from `sysctl kern.cp_time`; same delta math as `/proc/stat`.
-    const tick = await readMacCpuTimes()
+    // Darwin has no `kern.cp_time` on Apple Silicon, so ticks come from
+    // `os.cpus()` (cumulative ms per core); same delta math as `/proc/stat`.
+    const tick = readMacCpuTicks()
     const earlier = previousMacCpu
-    cpuUsage = deltaRatio(tick ?? { idle: 0, total: 0 }, earlier ?? undefined)
-    if (tick !== null && earlier !== undefined) {
-      cpuBusyMs = Math.round(((tick.total - tick.idle) / USER_HZ) * 1000)
-    }
-    // `kern.cp_time` is aggregate only; per-core ticks need a native binding we
-    // deliberately avoid, so the core grid stays empty on macOS.
-    cpuCores = []
+    const nowTicks = tick.cpu
+    const busyMs = earlier === null ? 0 : nowTicks.total - earlier.cpu.total - (nowTicks.idle - earlier.cpu.idle)
+    cpuUsage = deltaRatio(nowTicks, earlier?.cpu ?? undefined)
+    if (earlier !== null) cpuBusyMs = Math.round(busyMs)
+    cpuCores = tick.cores.map((core, index) => deltaRatio(core, earlier?.cores[index]) ?? 0)
     previousMacCpu = tick
   } else {
     // No tick counters on this platform: a load-normalized estimate is all there is.
@@ -457,6 +613,16 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     }
   }
 
+  // Network counters are cheap to read every tick; the rate needs the previous
+  // sample, which `networkInfo` handles (including counter resets).
+  const netNow = linux ? await readLinuxNet() : darwin ? await readMacNet() : null
+  let network: NetworkInfo | null = null
+  if (netNow !== null) {
+    network = networkInfo(netNow, previousNet, netAt === 0 ? 0 : now - netAt)
+    previousNet = netNow
+    netAt = now
+  }
+
   const rss = process.memoryUsage()
   seq += 1
 
@@ -477,6 +643,7 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     memory,
     swap: darwin ? await readMacSwap() : meminfo?.swap ?? null,
     disks: diskRows,
+    network,
     proc: { rss: rss.rss, heapUsed: rss.heapUsed },
   }
 }
@@ -485,6 +652,8 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
 export function resetSampler(): void {
   previous = null
   previousMacCpu = null
+  previousNet = null
+  netAt = 0
   seq = 0
   mounts = null
   diskAt = 0

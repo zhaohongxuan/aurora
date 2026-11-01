@@ -14,6 +14,7 @@ import { sample, type SystemStatsSnapshot } from './sampler.js'
 export type {
   DiskInfo,
   MemoryInfo,
+  NetworkInfo,
   SwapInfo,
   SystemStatsSnapshot,
 } from '../types.js'

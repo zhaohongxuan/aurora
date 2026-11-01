@@ -28,6 +28,10 @@ export interface StatsState {
   readonly cpuHistory: readonly number[]
   /** Memory history, oldest first, 0–1. */
   readonly memHistory: readonly number[]
+  /** Download rate history, oldest first, bytes per second. */
+  readonly netDownHistory: readonly number[]
+  /** Upload rate history, oldest first, bytes per second. */
+  readonly netUpHistory: readonly number[]
 }
 
 const INITIAL: StatsState = {
@@ -36,6 +40,8 @@ const INITIAL: StatsState = {
   failures: 0,
   cpuHistory: [],
   memHistory: [],
+  netDownHistory: [],
+  netUpHistory: [],
 }
 
 function push(history: readonly number[], value: number): number[] {
@@ -97,6 +103,10 @@ export function useSystemStats(intervalMs: number): StatsState {
             failures: 0,
             cpuHistory: snapshot.cpuUsage === null ? previous.cpuHistory : push(previous.cpuHistory, snapshot.cpuUsage),
             memHistory: push(previous.memHistory, snapshot.memory.ratio),
+            netDownHistory:
+              snapshot.network === null ? previous.netDownHistory : push(previous.netDownHistory, snapshot.network.rxRate),
+            netUpHistory:
+              snapshot.network === null ? previous.netUpHistory : push(previous.netUpHistory, snapshot.network.txRate),
           }))
           schedule()
         },

@@ -38,6 +38,22 @@ export interface SwapInfo {
   readonly ratio: number
 }
 
+/**
+ * Network throughput. Counters are cumulative bytes since boot; the rates are
+ * bytes per second derived from the host's previous sample, so a fresh sampler
+ * reports `0` rates until it has two ticks to diff.
+ */
+export interface NetworkInfo {
+  /** Cumulative bytes received across physical interfaces. */
+  readonly rxBytes: number
+  /** Cumulative bytes sent across physical interfaces. */
+  readonly txBytes: number
+  /** Receive rate in bytes per second over the last sampling interval. */
+  readonly rxRate: number
+  /** Transmit rate in bytes per second over the last sampling interval. */
+  readonly txRate: number
+}
+
 /** One complete host sample. */
 export interface SystemStatsSnapshot {
   readonly sampledAt: number
@@ -57,6 +73,7 @@ export interface SystemStatsSnapshot {
   readonly memory: MemoryInfo
   readonly swap: SwapInfo | null
   readonly disks: readonly DiskInfo[]
+  readonly network: NetworkInfo | null
   readonly proc: {
     readonly rss: number
     readonly heapUsed: number

@@ -10,7 +10,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Sparkline, type RingTone } from './charts.js'
 import { activeLanguage, copyFor, type Copy } from './copy.js'
-import { bytes, byteParts, duration, loadTone, loadValue, pct, pct1, tone } from './format.js'
+import { bytes, byteParts, duration, loadTone, loadValue, pct, rate, tone } from './format.js'
 import { useDragPosition, type Point } from './useDragPosition.js'
 import { useSystemStats, type StatsState } from './useStats.js'
 import type { SystemStatsSnapshot } from '../types.js'
@@ -121,56 +121,46 @@ function StatTile({ label, value, unit, detail, ratio, tone: tileTone }: StatTil
   )
 }
 
-interface MetricRowProps {
-  readonly label: string
-  readonly value: string
-  readonly ratio: number
-  readonly tone: RingTone
-  readonly history?: readonly number[]
-  readonly detail?: string
+/**
+ * Normalize a bytes-per-second series to 0–1 for the sparkline, which only
+ * understands ratios. Scaling by the series max keeps the *shape* of traffic
+ * (bursts vs idle) readable regardless of the absolute scale.
+ */
+function normalizeSeries(values: readonly number[]): number[] {
+  let max = 0
+  for (const value of values) if (Number.isFinite(value) && value > max) max = value
+  if (max <= 0) return values.map(() => 0)
+  return values.map((value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value / max)) : 0))
 }
 
-function MetricRow({ label, value, ratio, tone: rowTone, history, detail }: MetricRowProps): ReactNode {
+interface NetRowProps {
+  readonly label: string
+  readonly arrow: string
+  readonly value: string
+  readonly history: readonly number[]
+  readonly tone: RingTone
+}
+
+/** One direction (down/up) of the network section: label, live rate, sparkline. */
+function NetRow({ label, arrow, value, history, tone: rowTone }: NetRowProps): ReactNode {
   return h(
     'div',
     { className: 'aurora-row' },
     h(
       'div',
       { className: 'aurora-row-head' },
-      h('span', { className: 'aurora-row-label' }, label),
+      h('span', { className: 'aurora-row-label' }, `${arrow} ${label}`),
       h('span', { className: `aurora-row-value aurora-tone-${rowTone}` }, value),
-      detail === undefined ? null : h('span', { className: 'aurora-row-detail' }, detail),
     ),
     h(
       'div',
       { className: 'aurora-row-bar' },
-      h('span', {
-        className: `aurora-row-fill aurora-tone-${rowTone}`,
-        style: { width: `${Math.min(100, Math.max(1.5, ratio * 100))}%` },
-      }),
-      history === undefined || history.length < 2
+      history.length < 2
         ? null
         : h(Sparkline, { points: history, tone: rowTone, width: PANEL_WIDTH - 36, height: 26, className: 'aurora-row-spark' }),
     ),
   )
 }
-
-function CoreGrid({ cores }: { readonly cores: readonly number[] }): ReactNode {
-  if (cores.length === 0) return null
-  return h(
-    'div',
-    { className: 'aurora-cores', 'aria-hidden': true },
-    cores.map((value, index) =>
-      h('span', {
-        key: index,
-        className: `aurora-core aurora-tone-${tone(value)}`,
-        style: { opacity: 0.18 + Math.min(1, Math.max(0, value)) * 0.82 },
-        title: pct(value),
-      }),
-    ),
-  )
-}
-
 
 interface AuroraPanelProps {
   readonly snapshot: SystemStatsSnapshot
@@ -259,26 +249,27 @@ function AuroraPanel({ snapshot, copy, stats, pinned, placement, panelRef, posit
         tone: loadTone(snapshot.load[0], snapshot.cpuCount),
       }),
     ),
-    h(
-      'div',
-      { className: 'aurora-rows' },
-      h(MetricRow, {
-        label: copy.cpu,
-        value: pct1(snapshot.cpuUsage),
-        ratio: cpuRatio ?? 0,
-        tone: tone(cpuRatio),
-        history: stats.cpuHistory,
-      }),
-      h(MetricRow, {
-        label: copy.memory,
-        value: pct1(memRatio),
-        ratio: memRatio,
-        tone: tone(memRatio),
-        history: stats.memHistory,
-        detail: bytes(snapshot.memory.available),
-      }),
-    ),
-    h(CoreGrid, { cores: snapshot.cpuCores }),
+    snapshot.network === null
+      ? null
+      : h(
+          'section',
+          { className: 'aurora-net' },
+          h('div', { className: 'aurora-section-title' }, copy.network),
+          h(NetRow, {
+            label: copy.down,
+            arrow: '↓',
+            value: rate(snapshot.network.rxRate),
+            history: normalizeSeries(stats.netDownHistory),
+            tone: 'ok',
+          }),
+          h(NetRow, {
+            label: copy.up,
+            arrow: '↑',
+            value: rate(snapshot.network.txRate),
+            history: normalizeSeries(stats.netUpHistory),
+            tone: 'warn',
+          }),
+        ),
     snapshot.disks.length === 0
       ? null
       : h(
@@ -419,7 +410,6 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
   const showing = open && snapshot !== undefined && !drag.dragging
   const panel = showing ? placePanel(drag.position, panelHeight) : null
   const cpuRatio = snapshot?.cpuUsage ?? 0
-  const memRatio = snapshot?.memory.ratio ?? 0
   const primary = snapshot?.cpuUsage ?? snapshot?.memory.ratio ?? 0
   const primaryTone = tone(primary)
 
@@ -459,7 +449,8 @@ export function AuroraOrb({ intervalMs = 2000 }: AuroraOrbProps): ReactNode {
         'aria-label': pinned ? copy.collapse : copy.expand,
         'aria-expanded': open,
         'aria-pressed': pinned,
-        title: snapshot === undefined ? copy.waiting : `${copy.cpu} ${pct(snapshot.cpuUsage)} · ${copy.memory} ${pct(memRatio)}`,
+        // No native tooltip: hover already opens the full card, so a text hint
+        // would just duplicate it.
         // Click pins instead of opening: hover already opened it.
         onClick: togglePin,
         ...handleProps,

@@ -42,6 +42,12 @@ export function byteParts(value: number | null | undefined): { value: string; un
   return { value: formatted.slice(0, space), unit: formatted.slice(space + 1) }
 }
 
+/** Format a bytes-per-second rate as `1.2 MB/s`, `0 B/s` when idle. */
+export function rate(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return '–'
+  return `${bytes(value)}/s`
+}
+
 /** Format a load average with two decimals, e.g. `0.92`. */
 export function loadValue(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '–'

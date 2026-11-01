@@ -339,12 +339,6 @@
 
 /* ---------- metric rows ---------- */
 
-.aurora-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
 .aurora-row {
   position: relative;
 }
@@ -399,18 +393,6 @@
   opacity: 0.9;
 }
 
-.aurora-cores {
-  display: flex;
-  gap: 2px;
-  height: 12px;
-}
-
-.aurora-core {
-  flex: 1 1 0;
-  border-radius: 2px;
-  transition: opacity 420ms var(--aurora-ease);
-}
-
 /* ---------- disks ---------- */
 
 .aurora-disks {
@@ -418,6 +400,15 @@
   flex-direction: column;
   gap: 5px;
   padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--aurora-text) 8%, transparent);
+}
+
+/* Network: same framed section as disks, rows reuse the metric-row look. */
+.aurora-net {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 6px;
   border-top: 1px solid color-mix(in srgb, var(--aurora-text) 8%, transparent);
 }
 
@@ -507,24 +498,21 @@
 
 .aurora-tile-fill.aurora-tone-ok,
 .aurora-row-fill.aurora-tone-ok,
-.aurora-disk-fill.aurora-tone-ok,
-.aurora-core.aurora-tone-ok {
+.aurora-disk-fill.aurora-tone-ok {
   background: linear-gradient(90deg, var(--aurora-ok-from), var(--aurora-ok-to));
   color: inherit;
 }
 
 .aurora-tile-fill.aurora-tone-warn,
 .aurora-row-fill.aurora-tone-warn,
-.aurora-disk-fill.aurora-tone-warn,
-.aurora-core.aurora-tone-warn {
+.aurora-disk-fill.aurora-tone-warn {
   background: linear-gradient(90deg, var(--aurora-warn-from), var(--aurora-warn-to));
   color: inherit;
 }
 
 .aurora-tile-fill.aurora-tone-crit,
 .aurora-row-fill.aurora-tone-crit,
-.aurora-disk-fill.aurora-tone-crit,
-.aurora-core.aurora-tone-crit {
+.aurora-disk-fill.aurora-tone-crit {
   background: linear-gradient(90deg, var(--aurora-crit-from), var(--aurora-crit-to));
   color: inherit;
 }
@@ -535,7 +523,6 @@
   .aurora-tile-fill,
   .aurora-row-fill,
   .aurora-disk-fill,
-  .aurora-core,
   .aurora-ball {
     transition: none;
   }

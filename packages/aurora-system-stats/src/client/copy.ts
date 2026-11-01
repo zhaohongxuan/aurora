@@ -16,6 +16,9 @@ export interface Copy {
   readonly load5: string
   readonly load15: string
   readonly disk: string
+  readonly network: string
+  readonly down: string
+  readonly up: string
   readonly cores: string
   readonly swap: string
   readonly uptime: string
@@ -37,6 +40,9 @@ const zh: Copy = {
   load5: '5 分钟',
   load15: '15 分钟',
   disk: '磁盘',
+  network: '网络',
+  down: '下行',
+  up: '上行',
   cores: '核心',
   swap: '交换',
   uptime: '运行',
@@ -58,6 +64,9 @@ const en: Copy = {
   load5: '5 min',
   load15: '15 min',
   disk: 'Disk',
+  network: 'Network',
+  down: 'Down',
+  up: 'Up',
   cores: 'cores',
   swap: 'Swap',
   uptime: 'Uptime',
