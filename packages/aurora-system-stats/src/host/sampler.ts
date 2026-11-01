@@ -16,11 +16,12 @@ import type {
   DiskInfo,
   MemoryInfo,
   NetworkInfo,
+  ProcessInfo,
   SwapInfo,
   SystemStatsSnapshot,
 } from '../types.js'
 
-export type { DiskInfo, MemoryInfo, NetworkInfo, SwapInfo, SystemStatsSnapshot }
+export type { DiskInfo, MemoryInfo, NetworkInfo, ProcessInfo, SwapInfo, SystemStatsSnapshot }
 
 interface CpuTimes {
   readonly idle: number
@@ -529,6 +530,40 @@ function networkInfo(now: NetCounters, earlier: NetCounters | null, elapsedMs: n
   return { rxBytes: now.rx, txBytes: now.tx, rxRate, txRate }
 }
 
+/** How the panel's memory leaderboard trims names and how many rows it keeps. */
+const PROC_ROWS = 3
+const PROC_NAME_MAX = 16
+
+/**
+ * The biggest resident-memory processes, largest first.
+ *
+ * `ps -eo pid=,rss=,comm=` is portable across Linux and macOS (BSD `ps` lacks
+ * `--sort`, so ordering happens here). `comm` may contain spaces (e.g.
+ * `next-server (v…)`), so only the first two whitespace fields are parsed and
+ * the rest is the command. RSS is reported in KiB on both platforms; a process
+ * whose memory grew to `ratio` of total is what the bar shows.
+ * @param memTotal - total physical memory in bytes, for the ratio.
+ */
+async function readTopProcs(memTotal: number): Promise<ProcessInfo[]> {
+  const text = await run('ps', ['-eo', 'pid=,rss=,comm='])
+  if (text === null) return []
+  const rows: ProcessInfo[] = []
+  for (const line of text.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
+    if (match === null) continue
+    const pid = num(match[1])
+    const rss = num(match[2]) * 1024
+    if (rss <= 0) continue
+    // `comm` is a full path on some spawns; keep the basename for the label.
+    const raw = (match[3] ?? '').trim()
+    const base = raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
+    const name = base.length > PROC_NAME_MAX ? `${base.slice(0, PROC_NAME_MAX - 1)}…` : base
+    rows.push({ pid, name, rss, ratio: ratio(rss, memTotal) })
+  }
+  rows.sort((a, b) => b.rss - a.rss)
+  return rows.slice(0, PROC_ROWS)
+}
+
 let previous: ProcStat | null = null
 let previousMacCpu: { cpu: CpuTimes; cores: CpuTimes[] } | null = null
 let previousNet: NetCounters | null = null
@@ -537,6 +572,7 @@ let seq = 0
 let mounts: MountCandidate[] | null = null
 let diskAt = 0
 let diskRows: DiskInfo[] = []
+let procRows: ProcessInfo[] = []
 
 /**
  * Collect one snapshot.
@@ -611,6 +647,9 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     } else {
       diskRows = await disksFromDf()
     }
+    // Forking `ps` is comparatively pricey, so it rides the same slow cadence
+    // as the disk scan rather than the 1 s network tick.
+    procRows = await readTopProcs(memTotal)
   }
 
   // Network counters are cheap to read every tick; the rate needs the previous
@@ -644,6 +683,7 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     swap: darwin ? await readMacSwap() : meminfo?.swap ?? null,
     disks: diskRows,
     network,
+    procs: procRows,
     proc: { rss: rss.rss, heapUsed: rss.heapUsed },
   }
 }
@@ -658,4 +698,5 @@ export function resetSampler(): void {
   mounts = null
   diskAt = 0
   diskRows = []
+  procRows = []
 }

@@ -465,6 +465,54 @@
   text-align: right;
 }
 
+/* ---------- memory leaderboard ---------- */
+
+.aurora-procs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--aurora-text) 8%, transparent);
+}
+
+.aurora-proc {
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) 64px auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.aurora-proc-name {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aurora-proc-bar {
+  display: block;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--aurora-track);
+}
+
+.aurora-proc-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 420ms var(--aurora-ease);
+}
+
+.aurora-proc-rss {
+  font-size: 10px;
+  color: var(--aurora-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
 /* ---------- footer ---------- */
 
 .aurora-foot {
@@ -498,21 +546,24 @@
 
 .aurora-tile-fill.aurora-tone-ok,
 .aurora-row-fill.aurora-tone-ok,
-.aurora-disk-fill.aurora-tone-ok {
+.aurora-disk-fill.aurora-tone-ok,
+.aurora-proc-fill.aurora-tone-ok {
   background: linear-gradient(90deg, var(--aurora-ok-from), var(--aurora-ok-to));
   color: inherit;
 }
 
 .aurora-tile-fill.aurora-tone-warn,
 .aurora-row-fill.aurora-tone-warn,
-.aurora-disk-fill.aurora-tone-warn {
+.aurora-disk-fill.aurora-tone-warn,
+.aurora-proc-fill.aurora-tone-warn {
   background: linear-gradient(90deg, var(--aurora-warn-from), var(--aurora-warn-to));
   color: inherit;
 }
 
 .aurora-tile-fill.aurora-tone-crit,
 .aurora-row-fill.aurora-tone-crit,
-.aurora-disk-fill.aurora-tone-crit {
+.aurora-disk-fill.aurora-tone-crit,
+.aurora-proc-fill.aurora-tone-crit {
   background: linear-gradient(90deg, var(--aurora-crit-from), var(--aurora-crit-to));
   color: inherit;
 }
@@ -523,6 +574,7 @@
   .aurora-tile-fill,
   .aurora-row-fill,
   .aurora-disk-fill,
+  .aurora-proc-fill,
   .aurora-ball {
     transition: none;
   }

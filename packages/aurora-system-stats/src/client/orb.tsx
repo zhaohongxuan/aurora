@@ -287,6 +287,22 @@ function AuroraPanel({ snapshot, copy, stats, pinned, placement, panelRef, posit
             }),
           ),
         ),
+    snapshot.procs.length === 0
+      ? null
+      : h(
+          'section',
+          { className: 'aurora-procs' },
+          h('div', { className: 'aurora-section-title' }, copy.procs),
+          snapshot.procs.map((proc) =>
+            h(ProcRow, {
+              key: `${proc.pid}-${proc.name}`,
+              name: proc.name,
+              rss: proc.rss,
+              ratio: proc.ratio,
+              title: `PID ${proc.pid} · ${bytes(proc.rss)}`,
+            }),
+          ),
+        ),
     h(
       'footer',
       { className: 'aurora-foot' },
@@ -514,6 +530,30 @@ function DiskRow({ mount, used, total, ratio, title }: DiskRowProps): ReactNode 
     ),
     h('span', { className: 'aurora-disk-text' }, `${bytes(used)} / ${parts.value} ${parts.unit}`),
     h('span', { className: `aurora-disk-pct aurora-tone-${tone(ratio)}` }, pct(ratio)),
+  )
+}
+
+interface ProcRowProps {
+  readonly name: string
+  readonly rss: number
+  readonly ratio: number
+  readonly title: string
+}
+
+function ProcRow({ name, rss, ratio, title }: ProcRowProps): ReactNode {
+  return h(
+    'div',
+    { className: 'aurora-proc', title },
+    h('span', { className: 'aurora-proc-name' }, name),
+    h(
+      'span',
+      { className: 'aurora-proc-bar' },
+      h('span', {
+        className: `aurora-proc-fill aurora-tone-${tone(ratio)}`,
+        style: { width: `${Math.min(100, Math.max(1.5, ratio * 100))}%` },
+      }),
+    ),
+    h('span', { className: 'aurora-proc-rss' }, bytes(rss)),
   )
 }
 

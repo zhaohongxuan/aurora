@@ -54,6 +54,18 @@ export interface NetworkInfo {
   readonly txRate: number
 }
 
+/** One process in the memory leaderboard. */
+export interface ProcessInfo {
+  /** Process id at sample time. */
+  readonly pid: number
+  /** Command name (basename of the executable), trimmed for the panel. */
+  readonly name: string
+  /** Resident set size in bytes. */
+  readonly rss: number
+  /** Share of total physical memory, 0–1. */
+  readonly ratio: number
+}
+
 /** One complete host sample. */
 export interface SystemStatsSnapshot {
   readonly sampledAt: number
@@ -74,6 +86,8 @@ export interface SystemStatsSnapshot {
   readonly swap: SwapInfo | null
   readonly disks: readonly DiskInfo[]
   readonly network: NetworkInfo | null
+  /** The largest resident-memory processes, biggest first (up to three). */
+  readonly procs: readonly ProcessInfo[]
   readonly proc: {
     readonly rss: number
     readonly heapUsed: number

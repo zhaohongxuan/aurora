@@ -16,6 +16,7 @@ export interface Copy {
   readonly load5: string
   readonly load15: string
   readonly disk: string
+  readonly procs: string
   readonly network: string
   readonly down: string
   readonly up: string
@@ -40,6 +41,7 @@ const zh: Copy = {
   load5: '5 分钟',
   load15: '15 分钟',
   disk: '磁盘',
+  procs: '内存 Top3',
   network: '网络',
   down: '下行',
   up: '上行',
@@ -64,6 +66,7 @@ const en: Copy = {
   load5: '5 min',
   load15: '15 min',
   disk: 'Disk',
+  procs: 'Top memory',
   network: 'Network',
   down: 'Down',
   up: 'Up',
