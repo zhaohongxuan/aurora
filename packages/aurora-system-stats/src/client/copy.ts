@@ -41,7 +41,7 @@ const zh: Copy = {
   load5: '5 分钟',
   load15: '15 分钟',
   disk: '磁盘',
-  procs: '内存 Top3',
+  procs: '内存 Top5',
   network: '网络',
   down: '下行',
   up: '上行',

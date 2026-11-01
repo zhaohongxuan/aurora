@@ -531,17 +531,137 @@ function networkInfo(now: NetCounters, earlier: NetCounters | null, elapsedMs: n
 }
 
 /** How the panel's memory leaderboard trims names and how many rows it keeps. */
-const PROC_ROWS = 3
+const PROC_ROWS = 5
 const PROC_NAME_MAX = 16
+/** Roots that hold every user-relevant systemd service and container cgroup. */
+const CGROUP_ROOTS = ['/sys/fs/cgroup/system.slice', '/sys/fs/cgroup/user.slice']
+
+/** Read a single integer from a cgroup control file; `0` if absent/unreadable. */
+async function readCounter(path: string): Promise<number> {
+  const text = await readText(path)
+  return text === null ? 0 : num(text.trim())
+}
+
+/** Trim a label to the panel's width, keeping a trailing ellipsis. */
+function shortLabel(name: string): string {
+  return name.length > PROC_NAME_MAX ? `${name.slice(0, PROC_NAME_MAX - 1)}…` : name
+}
 
 /**
- * The biggest resident-memory processes, largest first.
+ * Resolve a `docker-<id>.scope` cgroup to a friendly container name.
  *
- * `ps -eo pid=,rss=,comm=` is portable across Linux and macOS (BSD `ps` lacks
- * `--sort`, so ordering happens here). `comm` may contain spaces (e.g.
- * `next-server (v…)`), so only the first two whitespace fields are parsed and
- * the rest is the command. RSS is reported in KiB on both platforms; a process
- * whose memory grew to `ratio` of total is what the bar shows.
+ * Reads the first PID in the group's `cgroup.procs` and takes the last path
+ * segment of its command line (e.g. `peach.server` → `peach`,
+ * `jellyfin/jellyfin` → `jellyfin`). Falls back to `docker:<short id>` when the
+ * process is gone or its cmdline is empty.
+ */
+async function containerLabel(scopePath: string, id: string): Promise<string> {
+  const pids = await readText(`${scopePath}/cgroup.procs`)
+  const first = pids?.trim().split('\n')[0]?.trim()
+  if (first !== undefined && first !== '') {
+    const cmdline = await readText(`/proc/${first}/cmdline`)
+    if (cmdline !== null) {
+      const argv = cmdline.split('\0').filter((part) => part !== '')
+      // Skip the runtime shim; the real server is the later argv.
+      const last = argv[argv.length - 1] ?? ''
+      const base = last.includes('/') ? last.slice(last.lastIndexOf('/') + 1) : last
+      // Drop a `.server` / `.py`-ish module suffix so `peach.server` reads `peach`.
+      const clean = base.replace(/\.[a-z]+$/i, '')
+      if (clean !== '') return shortLabel(clean)
+    }
+  }
+  return `docker:${id.slice(0, 8)}`
+}
+
+/** Turn a leaf cgroup directory name into a display label. */
+async function cgroupLabel(name: string, path: string): Promise<string> {
+  if (name.startsWith('docker-') && name.endsWith('.scope')) {
+    const id = name.slice('docker-'.length, -'.scope'.length)
+    return containerLabel(path, id)
+  }
+  // `magpie.service` → `magpie`, `session-c6.scope` → `session-c6`.
+  return shortLabel(name.replace(/\.(service|scope)$/, ''))
+}
+
+interface CgroupMemory {
+  readonly current: number
+  readonly swap: number
+}
+
+/**
+ * Aggregate resident + swapped memory per systemd cgroup unit (service,
+ * container, or session) and return the heaviest {@link PROC_ROWS}.
+ *
+ * Only **leaf** cgroups are counted: a parent slice (`system.slice`,
+ * `user@1000.service`, `app.slice`) reports its whole subtree in
+ * `memory.current`, so including parents would double-count every child.
+ * Grouping by unit — not by PID — is what keeps `magpie` or `dsh` (multi-process
+ * services) from being split into several misleading rows.
+ * @param memTotal - total physical memory in bytes, for the ratio.
+ */
+async function readTopCgroups(memTotal: number): Promise<ProcessInfo[]> {
+  const groups = new Map<string, CgroupMemory>()
+
+  /** Walk one cgroup root, summing only leaf units. */
+  async function walk(dir: string, label: string): Promise<void> {
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    const children = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    const hasMemory = entries.some((entry) => entry.name === 'memory.current')
+    // A cgroup that has child cgroups is a slice/aggregate — descend, don't count.
+    const childCgroups: string[] = []
+    for (const child of children) {
+      try {
+        await fs.access(`${dir}/${child}/memory.current`)
+        childCgroups.push(child)
+      } catch {
+        // Not a cgroup directory (a plain attribute dir) — ignore.
+      }
+    }
+    if (childCgroups.length > 0) {
+      for (const child of childCgroups) await walk(`${dir}/${child}`, child)
+      return
+    }
+    if (!hasMemory) return
+    // Interactive login sessions (`session-cN.scope`) are transient SSH/TTY
+    // scopes, not services — showing them misleads the "what eats my RAM" list.
+    if (label.startsWith('session-')) return
+    const current = await readCounter(`${dir}/memory.current`)
+    const swap = await readCounter(`${dir}/memory.swap.current`)
+    if (current <= 0 && swap <= 0) return
+    const key = await cgroupLabel(label, dir)
+    const bucket = groups.get(key) ?? { current: 0, swap: 0 }
+    groups.set(key, { current: bucket.current + current, swap: bucket.swap + swap })
+  }
+
+  for (const root of CGROUP_ROOTS) {
+    // The root itself is an aggregate; its direct children are top-level units.
+    let top: string[] = []
+    try {
+      top = (await fs.readdir(root, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('cgroup.'))
+        .map((entry) => entry.name)
+    } catch {
+      continue
+    }
+    for (const child of top) await walk(`${root}/${child}`, child)
+  }
+
+  return [...groups.entries()]
+    .map(([name, mem]) => ({ name, rss: mem.current, swap: mem.swap, ratio: ratio(mem.current, memTotal) }))
+    .sort((a, b) => b.rss + b.swap - (a.rss + a.swap))
+    .slice(0, PROC_ROWS)
+}
+
+/**
+ * macOS fallback: per-process resident memory from `ps`.
+ *
+ * BSD `ps` lacks `--sort`, so ordering happens here. cgroup v2 does not exist on
+ * Darwin, so this reports individual processes (no service grouping, no swap).
  * @param memTotal - total physical memory in bytes, for the ratio.
  */
 async function readTopProcs(memTotal: number): Promise<ProcessInfo[]> {
@@ -551,18 +671,16 @@ async function readTopProcs(memTotal: number): Promise<ProcessInfo[]> {
   for (const line of text.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
     if (match === null) continue
-    const pid = num(match[1])
     const rss = num(match[2]) * 1024
     if (rss <= 0) continue
-    // `comm` is a full path on some spawns; keep the basename for the label.
     const raw = (match[3] ?? '').trim()
     const base = raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
-    const name = base.length > PROC_NAME_MAX ? `${base.slice(0, PROC_NAME_MAX - 1)}…` : base
-    rows.push({ pid, name, rss, ratio: ratio(rss, memTotal) })
+    rows.push({ name: shortLabel(base), rss, swap: 0, ratio: ratio(rss, memTotal) })
   }
   rows.sort((a, b) => b.rss - a.rss)
   return rows.slice(0, PROC_ROWS)
 }
+
 
 let previous: ProcStat | null = null
 let previousMacCpu: { cpu: CpuTimes; cores: CpuTimes[] } | null = null
@@ -647,9 +765,9 @@ export async function sample(now = Date.now()): Promise<SystemStatsSnapshot> {
     } else {
       diskRows = await disksFromDf()
     }
-    // Forking `ps` is comparatively pricey, so it rides the same slow cadence
-    // as the disk scan rather than the 1 s network tick.
-    procRows = await readTopProcs(memTotal)
+    // Walking cgroups (or forking `ps`) is comparatively pricey, so it rides
+    // the same slow cadence as the disk scan rather than the 1 s network tick.
+    procRows = linux ? await readTopCgroups(memTotal) : darwin ? await readTopProcs(memTotal) : []
   }
 
   // Network counters are cheap to read every tick; the rate needs the previous

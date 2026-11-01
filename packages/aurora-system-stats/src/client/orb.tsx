@@ -295,11 +295,12 @@ function AuroraPanel({ snapshot, copy, stats, pinned, placement, panelRef, posit
           h('div', { className: 'aurora-section-title' }, copy.procs),
           snapshot.procs.map((proc) =>
             h(ProcRow, {
-              key: `${proc.pid}-${proc.name}`,
+              key: proc.name,
               name: proc.name,
               rss: proc.rss,
+              swap: proc.swap,
               ratio: proc.ratio,
-              title: `PID ${proc.pid} · ${bytes(proc.rss)}`,
+              title: proc.swap > 0 ? `${bytes(proc.rss)} · ${copy.swap} ${bytes(proc.swap)}` : bytes(proc.rss),
             }),
           ),
         ),
@@ -536,11 +537,12 @@ function DiskRow({ mount, used, total, ratio, title }: DiskRowProps): ReactNode 
 interface ProcRowProps {
   readonly name: string
   readonly rss: number
+  readonly swap: number
   readonly ratio: number
   readonly title: string
 }
 
-function ProcRow({ name, rss, ratio, title }: ProcRowProps): ReactNode {
+function ProcRow({ name, rss, swap, ratio, title }: ProcRowProps): ReactNode {
   return h(
     'div',
     { className: 'aurora-proc', title },
@@ -553,7 +555,12 @@ function ProcRow({ name, rss, ratio, title }: ProcRowProps): ReactNode {
         style: { width: `${Math.min(100, Math.max(1.5, ratio * 100))}%` },
       }),
     ),
-    h('span', { className: 'aurora-proc-rss' }, bytes(rss)),
+    h(
+      'span',
+      { className: 'aurora-proc-rss' },
+      bytes(rss),
+      swap > 0 ? h('span', { className: 'aurora-proc-swap' }, ` +${bytes(swap)}` ) : null,
+    ),
   )
 }
 

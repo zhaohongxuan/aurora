@@ -477,7 +477,7 @@
 
 .aurora-proc {
   display: grid;
-  grid-template-columns: minmax(44px, 1fr) 64px auto;
+  grid-template-columns: minmax(40px, 1fr) 56px auto;
   align-items: center;
   gap: 8px;
   font-size: 11px;
@@ -511,6 +511,12 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
+}
+
+/* Swapped-out portion, shown dimmer and appended after the resident figure. */
+.aurora-proc-swap {
+  opacity: 0.6;
+  font-size: 9px;
 }
 
 /* ---------- footer ---------- */

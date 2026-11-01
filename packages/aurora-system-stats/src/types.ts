@@ -54,15 +54,15 @@ export interface NetworkInfo {
   readonly txRate: number
 }
 
-/** One process in the memory leaderboard. */
+/** One row in the memory leaderboard, aggregated per systemd cgroup. */
 export interface ProcessInfo {
-  /** Process id at sample time. */
-  readonly pid: number
-  /** Command name (basename of the executable), trimmed for the panel. */
+  /** Human-readable group label: a service name (`magpie`), a container (`peach`). */
   readonly name: string
-  /** Resident set size in bytes. */
+  /** Resident memory (cgroup `memory.current`) in bytes. */
   readonly rss: number
-  /** Share of total physical memory, 0–1. */
+  /** Swapped-out memory (cgroup `memory.swap.current`) in bytes. */
+  readonly swap: number
+  /** Share of total physical memory held resident, 0–1. */
   readonly ratio: number
 }
 
