@@ -550,11 +550,36 @@ function shortLabel(name: string): string {
 /**
  * Resolve a `docker-<id>.scope` cgroup to a friendly container name.
  *
- * Reads the first PID in the group's `cgroup.procs` and takes the last path
- * segment of its command line (e.g. `peach.server` → `peach`,
- * `jellyfin/jellyfin` → `jellyfin`). Falls back to `docker:<short id>` when the
- * process is gone or its cmdline is empty.
+ * Reads the first PID in the group's `cgroup.procs` and derives a friendly name
+ * from its command line. The entry executable is argv[0]; when that is only an
+ * interpreter/runtime shim (`python`, `node`, `docker-init`…), the real workload
+ * is the following argument (e.g. `python -m peach.server` → `peach`). Falls
+ * back to `docker:<short id>` when the process is gone or its cmdline is empty.
  */
+const INTERPRETERS = new Set([
+  'python', 'python3', 'node', 'docker-init', 'sh', 'bash', 'java', 'env', 'tini',
+])
+
+/** Pick the workload token from an argv, skipping interpreter shims and flags. */
+function workloadArg(argv: readonly string[]): string {
+  const base = (token: string): string =>
+    token.includes('/') ? token.slice(token.lastIndexOf('/') + 1) : token
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index] ?? ''
+    // `-m module` / `-c cmd` from an interpreter: the module IS the workload.
+    if (arg === '-m' || arg === '-c') {
+      const next = argv[index + 1] ?? ''
+      return base(next)
+    }
+    if (arg === '' || arg === '--' || arg.startsWith('-')) continue
+    const name = base(arg)
+    // Keep scanning past interpreter shims (`python`, `node`, `docker-init`…).
+    if (INTERPRETERS.has(name)) continue
+    return name
+  }
+  return base(argv[0] ?? '')
+}
+
 async function containerLabel(scopePath: string, id: string): Promise<string> {
   const pids = await readText(`${scopePath}/cgroup.procs`)
   const first = pids?.trim().split('\n')[0]?.trim()
@@ -562,11 +587,9 @@ async function containerLabel(scopePath: string, id: string): Promise<string> {
     const cmdline = await readText(`/proc/${first}/cmdline`)
     if (cmdline !== null) {
       const argv = cmdline.split('\0').filter((part) => part !== '')
-      // Skip the runtime shim; the real server is the later argv.
-      const last = argv[argv.length - 1] ?? ''
-      const base = last.includes('/') ? last.slice(last.lastIndexOf('/') + 1) : last
+      const picked = workloadArg(argv)
       // Drop a `.server` / `.py`-ish module suffix so `peach.server` reads `peach`.
-      const clean = base.replace(/\.[a-z]+$/i, '')
+      const clean = picked.replace(/\.[a-z]+$/i, '')
       if (clean !== '') return shortLabel(clean)
     }
   }
