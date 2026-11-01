@@ -477,7 +477,9 @@
 
 .aurora-proc {
   display: grid;
-  grid-template-columns: minmax(40px, 1fr) 56px auto;
+  /* Fixed name and value columns so every row's bar starts and ends at the
+     same x — an `auto` value column let a wider row shove the bar sideways. */
+  grid-template-columns: 96px 1fr 56px;
   align-items: center;
   gap: 8px;
   font-size: 11px;
@@ -511,12 +513,6 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
-}
-
-/* Swapped-out portion, shown dimmer and appended after the resident figure. */
-.aurora-proc-swap {
-  opacity: 0.6;
-  font-size: 9px;
 }
 
 /* ---------- footer ---------- */
