@@ -542,6 +542,23 @@ async function readCounter(path: string): Promise<number> {
   return text === null ? 0 : num(text.trim())
 }
 
+/**
+ * Real resident memory of a cgroup: `anon` (anonymous pages — heap, stacks,
+ * allocations, transcode buffers) plus `shmem` (shared memory). Deliberately
+ * excludes `file` page cache, which a media server inflates by reading large
+ * files yet the kernel reclaims under pressure. Returns `0` if unreadable.
+ */
+async function readAnonShmem(statPath: string): Promise<number> {
+  const text = await readText(statPath)
+  if (text === null) return 0
+  let total = 0
+  for (const line of text.split('\n')) {
+    const match = /^(anon|shmem)\s+(\d+)/.exec(line)
+    if (match !== null) total += num(match[2])
+  }
+  return total
+}
+
 /** Trim a label to the panel's width, keeping a trailing ellipsis. */
 function shortLabel(name: string): string {
   return name.length > PROC_NAME_MAX ? `${name.slice(0, PROC_NAME_MAX - 1)}…` : name
@@ -612,14 +629,15 @@ interface CgroupMemory {
 }
 
 /**
- * Aggregate resident + swapped memory per systemd cgroup unit (service,
- * container, or session) and return the heaviest {@link PROC_ROWS}.
+ * Aggregate real resident memory (`anon` + `shmem`, minus page cache) per systemd
+ * cgroup unit (service, container, or session) and return the heaviest
+ * {@link PROC_ROWS}.
  *
  * Only **leaf** cgroups are counted: a parent slice (`system.slice`,
- * `user@1000.service`, `app.slice`) reports its whole subtree in
- * `memory.current`, so including parents would double-count every child.
- * Grouping by unit — not by PID — is what keeps `magpie` or `dsh` (multi-process
- * services) from being split into several misleading rows.
+ * `user@1000.service`, `app.slice`) reports its whole subtree, so including
+ * parents would double-count every child. Grouping by unit — not by PID — is
+ * what keeps `magpie` or `dsh` (multi-process services) from being split into
+ * several misleading rows.
  * @param memTotal - total physical memory in bytes, for the ratio.
  */
 async function readTopCgroups(memTotal: number): Promise<ProcessInfo[]> {
@@ -653,12 +671,16 @@ async function readTopCgroups(memTotal: number): Promise<ProcessInfo[]> {
     // Interactive login sessions (`session-cN.scope`) are transient SSH/TTY
     // scopes, not services — showing them misleads the "what eats my RAM" list.
     if (label.startsWith('session-')) return
-    const current = await readCounter(`${dir}/memory.current`)
+    // Report *real* memory, not `memory.current`: the latter also counts page
+    // cache (`file`), which a media server balloons by reading big video files
+    // yet the kernel reclaims on demand. `anon` (heap/stack/allocations) plus
+    // `shmem` is what the process actually holds.
+    const live = await readAnonShmem(`${dir}/memory.stat`)
     const swap = await readCounter(`${dir}/memory.swap.current`)
-    if (current <= 0 && swap <= 0) return
+    if (live <= 0 && swap <= 0) return
     const key = await cgroupLabel(label, dir)
     const bucket = groups.get(key) ?? { current: 0, swap: 0 }
-    groups.set(key, { current: bucket.current + current, swap: bucket.swap + swap })
+    groups.set(key, { current: bucket.current + live, swap: bucket.swap + swap })
   }
 
   for (const root of CGROUP_ROOTS) {
@@ -676,7 +698,9 @@ async function readTopCgroups(memTotal: number): Promise<ProcessInfo[]> {
 
   return [...groups.entries()]
     .map(([name, mem]) => ({ name, rss: mem.current, swap: mem.swap, ratio: ratio(mem.current, memTotal) }))
-    .sort((a, b) => b.rss + b.swap - (a.rss + a.swap))
+    // Rank by resident memory only — swap is disk-backed, not physical RAM, so
+    // mixing it in would let a mostly-swapped idle service outrank a hot one.
+    .sort((a, b) => b.rss - a.rss)
     .slice(0, PROC_ROWS)
 }
 
